@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use onestop::OneDuration;
 use regex::{Regex, Captures, Error};
 
 // Carlos Sanchez - 2022-12-05
@@ -216,7 +217,7 @@ pub struct BBCode {
     pub matchers: Arc<Vec<MatchInfo>>, //These are SOMETIMES processed (based on context)
 
     #[cfg(feature = "profiling")]
-    pub profiler: basic_profiler::Profiler
+    pub profiler: onestop::OneList<OneDuration>
 }
 
 impl BBCode 
@@ -231,7 +232,7 @@ impl BBCode
         Self {
             matchers: Arc::new(matchers),
             #[cfg(feature = "profiling")]
-            profiler: basic_profiler::Profiler::new()
+            profiler: onestop::OneList::<OneDuration>::new()
         }
     }
 
@@ -630,9 +631,9 @@ impl BBCode
     {
         #[cfg(feature = "profiling")]
         {
-            let mut profile = basic_profiler::TimerProfile::new(_name);
+            let mut profile = onestop::OneDuration::new(_name);
             let result = self.parse(input);
-            profile.complete();
+            profile.finish();
             self.profiler.add(profile);
             result
         }

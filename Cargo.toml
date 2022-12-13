@@ -2,6 +2,12 @@
 name = "bbscope"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "BBCode to HTML with scoping rules, auto-close tags, highly extensible"
+repository = "https://github.com/randomouscrap98/bbscope-rust"
+readme = "README.md"
+keywords = ["bbcode","html","parse","scope","markup"]
+categories = ["parsing","text-processing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

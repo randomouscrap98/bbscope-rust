@@ -216,7 +216,7 @@ pub struct BBCode {
     pub matchers: Arc<Vec<MatchInfo>>, //These are SOMETIMES processed (based on context)
 
     #[cfg(feature = "profiling")]
-    pub profiler: onestop::OneList<OneDuration>
+    pub profiler: onestop::OneList<onestop::OneDuration>
 }
 
 impl BBCode 
@@ -231,7 +231,7 @@ impl BBCode
         Self {
             matchers: Arc::new(matchers),
             #[cfg(feature = "profiling")]
-            profiler: onestop::OneList::<OneDuration>::new()
+            profiler: onestop::OneList::<onestop::OneDuration>::new()
         }
     }
 

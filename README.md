@@ -68,7 +68,22 @@ let tags = vec![
 let mut mytags = BBCode::tags_to_matches(tags).unwrap();
 matchers.append(&mut mytags);
 let bbcode = BBCode::from_matchers(matchers);
+```
 
+You can also setup more complex tags (but this structure is subject to change)
+```rust
+//Other lines same as above
+let tags = vec![
+  //Example of the "code" tag (already implemented in [`Self::extras()`)
+  TagInfo { 
+    tag: "code", 
+    outtag: "pre", 
+    tag_type : TagType::DefinedArg("data-code"),  //This tag tags oenextra item, name in enum is nmme
+    rawextra : Some(r#"class="code""#), 
+    valparse: TagValueParse::ForceVerbatim, 
+    blankconsume: BlankConsume::End(1)  // block level tags consume up to 1 newline after both their starting and closing tags
+  }, 
+];
 ```
 
 ## Default supported tags:

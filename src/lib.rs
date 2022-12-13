@@ -742,7 +742,7 @@ mod tests {
              "it&#39;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"),
             ("[][[][6][a[ab]c[i]italic[but][][* not] 8[]]][", "[][[][6][a[ab]c<i>italic[but][][* not] 8[]]][</i>"),
             ("[url]this[b]is[/b]a no-no[i][/url]", r#"<a target="_blank" href="this[b]is[/b]a no-no[i]">this[b]is[/b]a no-no[i]</a>"#),
-            ("[img=https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png">abc 123"#),
+            ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">abc 123"#),
             ("[spoiler]this[b]is empty[/spoiler]", r#"<details class="spoiler"><summary>Spoiler</summary>this<b>is empty</b></details>"#)
         ];
 
@@ -790,11 +790,11 @@ mod tests {
         simple_bolditalic: ("[b][i]hello[/i][/b]", "<b><i>hello</i></b>");
         nested_bold: ("[b]hey[b]extra bold[/b] less bold again[/b]", "<b>hey<b>extra bold</b> less bold again</b>");
         simple_url_default: ("[url]https://google.com[/url]", r#"<a target="_blank" href="https://google.com">https://google.com</a>"#);
-        simple_url_witharg: ("[url=http://haloopdy.com]furries lol[/url]", r#"<a target="_blank" href="http://haloopdy.com">furries lol</a>"#);
-        simple_img: ("[img]https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png[/img]", r#"<img src="https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png">"#);
-        simple_img_nonstd: ("[img=https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png][/img]", r#"<img src="https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png">"#);
+        simple_url_witharg: ("[url=http://ha4l6o7op9dy.com]furries lol[/url]", r#"<a target="_blank" href="http://ha4l6o7op9dy.com">furries lol</a>"#);
+        simple_img: ("[img]https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
+        simple_img_nonstd: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png][/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
         //NOTE: this one, it's just how I want it to work. IDK how the real bbcode handles this weirdness
-        simple_img_nonstd_inner: ("[img=https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smilebasicsource.com/user_uploads/avatars/t1647374379.png">abc 123"#);
+        simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">abc 123"#);
         //This also tests auto-closed tags, albeit a simple form
         list_basic:  ("[list][*]item 1[/*][*]item 2[/*][*]list[/*][/list]", "<ul><li>item 1</li><li>item 2</li><li>list</li></ul>");
         unclosed_basic: ("[b] this is bold [i]also italic[/b] oops close all[/i]", "<b> this is bold <i>also italic</i></b> oops close all");

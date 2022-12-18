@@ -17,7 +17,7 @@ static NORMALTEXTID: &str = "normaltext";
 
 /// The type for your emit closure which will take the open tag capture, body, and close tag capture and 
 /// output whatever you want. used with 
-pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String>; 
+pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String + Send + Sync>; 
 
 /// Information about a scoped tag with open and close elements. This gives you the power to craft
 /// many kinds of markup, not just bbcode, and have it understand scope
@@ -53,7 +53,7 @@ impl ScopeInfo {
 /// just use the [`Simple`] option
 pub enum MatchType { 
     /// A match type that requires no scoping rules: just a simple regex replacement (or whatever replacement you want)
-    Simple(Box<dyn Fn(Captures)->String>), //Inefficient to use String but we have to in order to support replacements etc
+    Simple(Box<dyn Fn(Captures)->String + Send + Sync>), //Inefficient to use String but we have to in order to support replacements etc
     /// The match should expect an open tag, which increases scope and performs open scope rules
     Open(Arc<ScopeInfo>), 
     /// The match should expect a closing tag, which decreases scope and performs close scope rules

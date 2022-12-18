@@ -11,110 +11,123 @@ use regex::{Regex, Captures, Error};
 //- close all unclosed tags at the end
 //- don't modify whitespace for version 1
 
+
+
 /// A structure to build a bbbcode tag. Nearly all bbcode tags should work through this configuration,
 /// but you may find some are too complex (for now)
-#[derive(Debug, Clone)]
-pub struct TagInfo {
-    ///The tag identity, such as "b", "youtube", etc
-    pub tag : &'static str,
-    //The tag to put out as html
-    pub outtag: &'static str,
-    pub tag_type: TagType,
-    pub rawextra: Option<&'static str>, //Just dump this directly into the tag at the end. No checks performed
-    pub valparse: TagValueParse,
-    pub blankconsume : BlankConsume
-}
+//#[derive(Debug, Clone)]
+//pub struct TagInfo {
+//    ///The tag identity, such as "b", "youtube", etc
+//    pub tag : &'static str,
+//    //The tag to put out as html
+//    pub outtag: &'static str,
+//    pub tag_type: TagType,
+//    pub rawextra: Option<&'static str>, //Just dump this directly into the tag at the end. No checks performed
+//    pub valparse: TagValueParse,
+//    pub blankconsume : BlankConsume
+//}
+//
+//impl TagInfo {
+//    /// Constructors for basic tags. Anything else, you're better off just constructing it normally
+//    pub fn simple(tag: &'static str) -> TagInfo {
+//        TagInfo { tag, outtag: tag, tag_type: TagType::Simple, rawextra: None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::None }
+//    }
+//    /*pub fn normal(tag: &'static str, outtag: &'static str, tag_type: TagType, rawextra: Option<&'static str>) -> TagInfo {
+//        TagInfo { tag, outtag, tag_type, rawextra, valparse
+//    }*/
+//    fn start() -> TagInfo {
+//        TagInfo { tag: "", outtag: "", tag_type: TagType::Start, rawextra: None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::None }
+//    }
+//
+//    /// Does this tag allow other tags inside, or none? Some tag types automatically require no other 
+//    /// tags inside, while others can manually set themselves to verbatim
+//    pub fn is_verbatim(&self) -> bool {
+//        if let TagValueParse::ForceVerbatim = self.valparse {
+//            true
+//        }
+//        else {
+//            match self.tag_type {
+//                TagType::Start => false,
+//                TagType::Simple => false,
+//                TagType::DefinedArg(_) => false,
+//                TagType::DefinedTag(_, _) => false,
+//                TagType::SelfClosing(_) => true,
+//                TagType::DefaultArg(_) => true
+//            }
+//        }
+//    }
+//}
+//
+///// How are values parsed? Basically varying levels of rigidity in having tags
+///// inside other tags
+//#[derive(Debug, Clone)]
+//pub enum TagValueParse {
+//    Normal,
+//    ForceVerbatim,
+//    DoubleCloses
+//}
+//
+///// This is the 'silly' part of the parser. Rather than making some actually generic system, I identified some
+///// standard ways tags are used and just made code around those ways. Probably bad but oh well.
+//#[derive(Debug, Clone)]
+//pub enum TagType {
+//    /// Don't make tags with this type, it's for the system! Should ONLY have one of these! It's like S in a grammar!
+//    Start,          
+//    /// Stuff like [b][/b], no args, normal translation (can change tag name still)
+//    Simple,         
+//    /// CAN have argument defined (but optional), attribute name is given in enum
+//    DefinedArg(&'static str),   
+//    /// Some arguments turn into tags! Crazy... (like spoiler creating a "summary" tag)
+//    DefinedTag(&'static str, Option<&'static str>),   
+//    /// No closing tag, value turns into an arg with the name given in the enum
+//    SelfClosing(&'static str),  
+//    /// The tag enclosed value provides a default for the given attribute, or not if defined. Used for [url] etc
+//    DefaultArg(&'static str),   
+//}
+//
+///// How are blanks treated around tags?
+//#[derive(Debug, Clone)]
+//pub enum BlankConsume {
+//    /// Tag does not consume blanks
+//    None,
+//    /// Tag comsumes UP TO the given amount of newlines before the tag
+//    Start(i32),
+//    /// Tag comsumes UP TO the given amount of newlines after the tag
+//    End(i32)
+//}
 
-impl TagInfo {
-    /// Constructors for basic tags. Anything else, you're better off just constructing it normally
-    pub fn simple(tag: &'static str) -> TagInfo {
-        TagInfo { tag, outtag: tag, tag_type: TagType::Simple, rawextra: None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::None }
-    }
-    /*pub fn normal(tag: &'static str, outtag: &'static str, tag_type: TagType, rawextra: Option<&'static str>) -> TagInfo {
-        TagInfo { tag, outtag, tag_type, rawextra, valparse
-    }*/
-    fn start() -> TagInfo {
-        TagInfo { tag: "", outtag: "", tag_type: TagType::Start, rawextra: None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::None }
-    }
 
-    /// Does this tag allow other tags inside, or none? Some tag types automatically require no other 
-    /// tags inside, while others can manually set themselves to verbatim
-    pub fn is_verbatim(&self) -> bool {
-        if let TagValueParse::ForceVerbatim = self.valparse {
-            true
-        }
-        else {
-            match self.tag_type {
-                TagType::Start => false,
-                TagType::Simple => false,
-                TagType::DefinedArg(_) => false,
-                TagType::DefinedTag(_, _) => false,
-                TagType::SelfClosing(_) => true,
-                TagType::DefaultArg(_) => true
-            }
-        }
-    }
-}
 
-/// How are values parsed? Basically varying levels of rigidity in having tags
-/// inside other tags
-#[derive(Debug, Clone)]
-pub enum TagValueParse {
-    Normal,
-    ForceVerbatim,
-    DoubleCloses
-}
-
-/// This is the 'silly' part of the parser. Rather than making some actually generic system, I identified some
-/// standard ways tags are used and just made code around those ways. Probably bad but oh well.
-#[derive(Debug, Clone)]
-pub enum TagType {
-    /// Don't make tags with this type, it's for the system! Should ONLY have one of these! It's like S in a grammar!
-    Start,          
-    /// Stuff like [b][/b], no args, normal translation (can change tag name still)
-    Simple,         
-    /// CAN have argument defined (but optional), attribute name is given in enum
-    DefinedArg(&'static str),   
-    /// Some arguments turn into tags! Crazy... (like spoiler creating a "summary" tag)
-    DefinedTag(&'static str, Option<&'static str>),   
-    /// No closing tag, value turns into an arg with the name given in the enum
-    SelfClosing(&'static str),  
-    /// The tag enclosed value provides a default for the given attribute, or not if defined. Used for [url] etc
-    DefaultArg(&'static str),   
-}
-
-/// How are blanks treated around tags?
-#[derive(Debug, Clone)]
-pub enum BlankConsume {
-    /// Tag does not consume blanks
-    None,
-    /// Tag comsumes UP TO the given amount of newlines before the tag
-    Start(i32),
-    /// Tag comsumes UP TO the given amount of newlines after the tag
-    End(i32)
+pub struct ScopeInfo {
+    pub disallowed: Vec<&'static str>,
+    pub double_closes: bool,
+    pub emit: Box<dyn Fn(Captures, &str, Option<Captures>)->String>, //The emmitter for this entire scope
+    //pub emit: Box<dyn Fn(Captures, &str, Captures)->String>  //First capture is open tag, str is body, last capture is closing tag
 }
 
 /// While "TagType" determines how the tag functions at a lower level (such as how it handles arguments), 
 /// this determines how the whole block functions on a greater level. They define how scopes and whole blocks
 /// of text move into the output. This still operates on the idea of "tags" though
-#[derive(Debug, Clone)]
+//#[derive(Debug, Clone)]
 pub enum MatchType { 
+    Simple(Box<dyn Fn(Captures)->String>), //Inefficient to use String but we have to in order to support replacements etc
     /// Pass this junk right out as-is
-    Passthrough,    
+    //Passthrough,    
     /// The match should expect an open tag, which increases scope and performs open scope rules
-    Open(TagInfo),
+    Open(ScopeInfo), //Vec<&'static str>), //This is the disallowed tags
     /// The match should expect a closing tag, which decreases scope and performs close scope rules
-    Close(TagInfo),
-    /// Note: you can use BlockTransform to craft many kinds of generic matching, if it can use regex! It just won't
-    /// be part of the scoping rules! IE it should be an entire block! Also, the match will ALWAYS be html escaped first!
-    BlockTransform(&'static str),  //Take the full match and transform it into something entirely different
-    DirectReplace(&'static str)
+    Close//(Box<dyn Fn(Captures, &str, Option<Captures>)->String>), //The emmitter for this entire scope
+    // Note: you can use BlockTransform to craft many kinds of generic matching, if it can use regex! It just won't
+    // be part of the scoping rules! IE it should be an entire block! Also, the match will ALWAYS be html escaped first!
+    //BlockTransform(&'static str),  //Take the full match and transform it into something entirely different
+    //DirectReplace(&'static str)
 }
 
 /// Definition for a block level matcher. Analogous to "TypeInfo" but for the greater scope. Should always be
 /// readonly, it is just a definition. Not necessary a tag element, could define eating garbage, escape chars, etc.
-#[derive(Debug, Clone)]
+//#[derive(Debug, Clone)]
 pub struct MatchInfo {
+    pub id: &'static str,
     pub regex : Regex,
     pub match_type: MatchType,
 }
@@ -124,10 +137,39 @@ pub struct MatchInfo {
 
 /// A scope for bbcode tags. Scopes increase and decrease as tags are opened and closed. Scopes are placed on a stack
 /// to aid with auto-closing tags
+//struct BBScope<'a> {
 struct BBScope<'a> {
-    info: &'a TagInfo,
-    inner_start: usize, //TERRIBLE! MAYBE?!
-    has_arg: bool, //May need to change if more configuration needed
+    //info: &'a TagInfo,
+    id: &'static str,
+    info: &'a ScopeInfo,
+    //match_info: &'a MatchInfo,
+    open_tag_capture: Captures<'a>,
+    //disallowed: Vec<&'static str>,
+    body: String, //where to dump current result (when this scope is one top)
+    //inner_start: usize //, //TERRIBLE! MAYBE?!
+    //has_arg: bool, //May need to change if more configuration needed
+}
+
+impl BBScope<'_> {
+    fn is_allowed(&self, id: &str) -> bool {
+        for disallow in self.info.disallowed {
+            //If EVEN ONE thing disallows this, it is not allowed. 
+            if (disallow == "*" && self.id != id ) ||
+            (disallow.starts_with("*") && id.ends_with(&disallow[1..])) ||
+            (disallow.ends_with("*") && id.starts_with(&disallow[0..disallow.len()-1])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    fn double_closes(&self, id: &str) -> bool {
+        self.id == id && self.info.double_closes
+    }
+    fn emit(self, close_captures: Option<Captures>) -> String {
+        let emitter = self.info.emit;
+        emitter(self.open_tag_capture, &self.body, close_captures)
+        //if let MatchType::self.match_info
+    }
 }
 
 /// A container with functions to help manage scopes. It doesn't understand what bbcode is or how the tags should
@@ -141,47 +183,53 @@ impl<'a> BBScoper<'a>
 {
     fn new() -> Self { BBScoper { scopes: Vec::new() }}
 
+    fn close_last(&mut self, close_tag: Option<Captures>) {
+        if let Some(scope) = self.scopes.pop() {
+            let body = scope.emit(close_tag); //this consumes the scope, which is fine
+            //This MIGHT NOT exist, but it needs to!
+            self.scopes.last().unwrap().body.push_str(&body);
+        }
+        else {
+            panic!("BBScoper::close_last HOW DID THIS HAPPEN? There were scopes from .last but pop returned none!");
+        }
+    }
+
     /// Add a scope, which may close some existing scopes. The closed scopes are returned in display order.
     /// NOTE: the added infos must live as long as the scope container!
-    fn add_scope(&mut self, scope: BBScope<'a>) -> (&BBScope, Vec<BBScope<'a>>) {
+    fn add_scope(&mut self, scope: BBScope<'a>) { // -> &BBScope {// Vec<BBScope<'a>>) {
         //here we assume all taginfos have unique tags because why wouldn't they
-        let mut result = Vec::new();
+        //let mut result = Vec::new();
         if let Some(topinfo) = self.scopes.last() {
             //oh the thing on top is the same, if we don't want that, close it.
-            if topinfo.info.tag == scope.info.tag && matches!(scope.info.valparse, TagValueParse::DoubleCloses){
-                //It's the same, close the last one
-                if let Some(scope) = self.scopes.pop() {
-                    result.push(scope);
-                }
-                else {
-                    println!("BBScoper::add_scope HOW DID THIS HAPPEN? There were scopes from .last but pop returned none!");
-                }
+            if topinfo.double_closes(scope.id) { //topinfo.info.tag == scope.info.tag && matches!(scope.info.valparse, TagValueParse::DoubleCloses){
+                self.close_loast(None);
             }
         }
 
         self.scopes.push(scope);
-        (self.scopes.last().unwrap(), result) //Kind of a silly return type, might change it later
+        //(self.scopes.last().unwrap(), result) //Kind of a silly return type, might change it later
     }
     
     /// Close the given scope, which should return the scopes that got closed (including the self).
     /// If no scope could be found, the vector is empty
-    fn close_scope(&mut self, info: &'a TagInfo) -> Vec<BBScope<'a>> {
+    fn close_scope(&mut self, id: &'static str) -> usize { //info: &'a TagInfo) { //-> Vec<BBScope<'a>> {
         let mut scope_count = 0;
-        let mut tag_found = false;
+        let mut tag_found : bool; //Option<&String> = None; //false;
 
         //Scan backwards, counting. Stop when you find a matching tag. This lets us know the open child scopes
         //that were not closed
         for scope in self.scopes.iter().rev() {
             scope_count += 1;
-            if info.tag == scope.info.tag {
+            if id == scope.id {
+                //tag_found = Some(&scope.body);
                 tag_found = true;
                 break;
             }
         }
 
         //Return all the scopes from the end to the found closed scope. Oh and also remove them
-        if tag_found {
-            let mut result = Vec::with_capacity(scope_count + 1);
+        if tag_found { //let //Some(body) = tag_found {
+            //let mut result = Vec::with_capacity(scope_count + 1);
             for _i in 0..scope_count {
                 if let Some(scope) = self.scopes.pop() {
                     result.push(scope);
@@ -190,10 +238,12 @@ impl<'a> BBScoper<'a>
                     println!("BBScope::close_scope LOGIC ERROR: SCANNED PAST END OF SCOPELIST");
                 }
             }
-            result
+            //result
+            scope_count
         }
         else {
-            Vec::new()
+            0 //No scopes closed
+            //Vec::new()
         }
     }
 
@@ -533,20 +583,27 @@ impl BBCode
             //these are such small state machines with nothing too crazy that I think it's fine.... maybe.
             //Especially since they all start at the start of the string
             for matchinfo in self.matchers.iter() {
-                if current_scope.info.is_verbatim() {
-                    match &matchinfo.match_type {
-                        //If the thing to match is open or close and we're inside a verbatim string, skip the matching if
-                        //it's not the same tag as the current scope. So, [url]what[url] is fine, [url] will be found
-                        MatchType::Open(doinfo) | MatchType::Close(doinfo) => { if doinfo.tag != current_scope.info.tag { continue; } }
-                        MatchType::BlockTransform(_) => continue, //No block transforms inside verbatim no matter what!
-                        //MatchType::Close(doinfo) => { if doinfo.tag != current_scope.info.tag { continue; } }
-                        _ => {} //Do nothing
-                    }
+                if !current_scope.is_allowed(matchinfo.id) {
+                    continue;
                 }
-                if matchinfo.regex.is_match(slice) {
+                else if matchinfo.regex.is_match(slice) {
                     matched_do = Some(matchinfo);
                     break;
                 }
+                //if current_scope.info.is_verbatim() {
+                //    match &matchinfo.match_type {
+                //        //If the thing to match is open or close and we're inside a verbatim string, skip the matching if
+                //        //it's not the same tag as the current scope. So, [url]what[url] is fine, [url] will be found
+                //        MatchType::Open(doinfo) | MatchType::Close(doinfo) => { if doinfo.tag != current_scope.info.tag { continue; } }
+                //        MatchType::BlockTransform(_) => continue, //No block transforms inside verbatim no matter what!
+                //        //MatchType::Close(doinfo) => { if doinfo.tag != current_scope.info.tag { continue; } }
+                //        _ => {} //Do nothing
+                //    }
+                //}
+                //if matchinfo.regex.is_match(slice) {
+                //    matched_do = Some(matchinfo);
+                //    break;
+                //}
             }
 
             //SOMETHING matched, which means we do something special to consume the output
@@ -558,21 +615,24 @@ impl BBCode
                     let scope_end : usize = slice.as_ptr() as usize - input.as_ptr() as usize;
                     slice = &slice[captures[0].len()..];
                     match &tagdo.match_type {
-                        MatchType::Passthrough => {
-                            //The entire matched portion can go straight through. This gets us quickly
-                            //through chunks of non-bbcode 
-                            result.push_str(&captures[0]);
-                        },
-                        MatchType::DirectReplace(new_text) => {
-                            //The matched chunk has a simple replacement with no rules
-                            result.push_str(new_text);
-                        },
-                        MatchType::BlockTransform(replacement) => {
-                            //need to take the captures and transform it to whatever you wanted. But always be safe! If you don't
-                            //want this, hmmmm gotta think about that
-                            //result.push_str(&html_escape::encode_quoted_attribute(&argval[1..]));
-                            result.push_str(&tagdo.regex.replace(&html_escape::encode_quoted_attribute(&captures[0]), *replacement));
-                        },
+                        MatchType::Simple(closure) => {
+                            current_scope.result.push_str(&closure(captures));
+                        }
+                        //MatchType::Passthrough => {
+                        //    //The entire matched portion can go straight through. This gets us quickly
+                        //    //through chunks of non-bbcode 
+                        //    result.push_str(&captures[0]);
+                        //},
+                        //MatchType::DirectReplace(new_text) => {
+                        //    //The matched chunk has a simple replacement with no rules
+                        //    result.push_str(new_text);
+                        //},
+                        //MatchType::BlockTransform(replacement) => {
+                        //    //need to take the captures and transform it to whatever you wanted. But always be safe! If you don't
+                        //    //want this, hmmmm gotta think about that
+                        //    //result.push_str(&html_escape::encode_quoted_attribute(&argval[1..]));
+                        //    result.push_str(&tagdo.regex.replace(&html_escape::encode_quoted_attribute(&captures[0]), *replacement));
+                        //},
                         MatchType::Open(info) => {
                             //Need to enter a scope. Remember where the beginning of this scope is just in case we need it
                             let new_scope = BBScope {

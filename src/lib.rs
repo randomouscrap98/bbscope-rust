@@ -436,17 +436,6 @@ impl BBCode
             emit: Box::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(o, b), b) )
         }, None, None)?;
         Ok(matches)
-        //BBCode::tags_to_matches(vec![
-        //    TagInfo { tag: "quote", outtag: "blockquote", tag_type : TagType::DefinedArg("cite"), rawextra : None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::End(1) },
-        //    TagInfo { tag: "anchor", outtag: "a", tag_type : TagType::DefinedArg("name"), rawextra : None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
-        //    TagInfo { tag: "icode", outtag: "span", tag_type : TagType::Simple, rawextra : Some(r#"class="icode""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
-        //    TagInfo { tag: "code", outtag: "pre", tag_type : TagType::DefinedArg("data-code"), rawextra : Some(r#"class="code""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::End(1) },
-        //    TagInfo { tag: "youtube", outtag: "a", tag_type : TagType::DefaultArg("href"), rawextra : Some(r#"class="youtube" data-youtube"#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::End(1) },
-        //    TagInfo { tag: "spoiler", outtag: "details", tag_type : TagType::DefinedTag("summary", Some("Spoiler")), rawextra : Some(r#"class="spoiler""#), valparse: TagValueParse::Normal, blankconsume: BlankConsume::None },
-        //    TagInfo::simple("h1"),
-        //    TagInfo::simple("h2"),
-        //    TagInfo::simple("h3"),
-        //])
     }
 
     /// Main function! You call this to parse your raw bbcode! It also escapes html stuff so it can
@@ -643,10 +632,10 @@ mod tests {
         let bbcode = BBCode::from_matchers(matchers);
         let parselem = vec![
             ("it's a %CRAZY% <world> 💙=\"yeah\" 👨‍👨‍👧‍👦>>done", 
-             "it&#39;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"),
+             "it&#x27;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"),
             ("[][[][6][a[ab]c[i]italic[but][][* not] 8[]]][", "[][[][6][a[ab]c<i>italic[but][][* not] 8[]]][</i>"),
-            ("[url]this[b]is[/b]a no-no[i][/url]", r#"<a target="_blank" href="this[b]is[/b]a no-no[i]">this[b]is[/b]a no-no[i]</a>"#),
-            ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">abc 123"#),
+            ("[url]this[b]is[/b]a no-no[i][/url]", r#"<a href="this[b]is[/b]a no-no[i]" target="_blank">this[b]is[/b]a no-no[i]</a>"#),
+            ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#),
             ("[spoiler]this[b]is empty[/spoiler]", r#"<details class="spoiler"><summary>Spoiler</summary>this<b>is empty</b></details>"#)
         ];
 
@@ -749,9 +738,6 @@ mod tests {
         icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);
         code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "\n<pre data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
     }
-        //    TagInfo { tag: "anchor", outtag: "a", tag_type : TagType::DefinedArg("name"), rawextra : None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
-        //    TagInfo { tag: "icode", outtag: "span", tag_type : TagType::Simple, rawextra : Some(r#"class="icode""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
-        //    TagInfo { tag: "code", outtag: "pre", tag_type : TagType::DefinedArg("data-code"), rawextra : Some(r#"class="code""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::End(1) },
 
 /* These tests are limitations of the old parser, I don't want to include them
 [quote=foo=bar]...[/quote]

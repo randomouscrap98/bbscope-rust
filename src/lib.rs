@@ -441,21 +441,21 @@ impl BBCode
         //    })
         //}).collect::<Result<Vec<MatchInfo>, Error>>()?;
 
-        //Consumption first
+        //This is an optimization: any large block of characters that has no meaning in bbcode can go straight through.
+        matches.push(MatchInfo {
+            id: NORMALTEXTID,
+            //We use h to catch ourselves on https. this unfortunately breaks up large sections of text into much
+            //smaller ones, but it should be ok... I don't know. My parser is stupid lol
+            regex: Regex::new(r#"^[^\[\n\rh]+"#)?, 
+            match_type : MatchType::Simple(Box::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
+        });
+
         matches.push(MatchInfo { 
             id: CONSUMETEXTID,
             regex: Regex::new(r#"^[\r]+"#)?, 
             match_type: MatchType::Simple(Box::new(|_c| String::new()))
         });
 
-        //This is an optimization: any large block of characters that has no meaning in bbcode can go straight through.
-        matches.push(MatchInfo {
-            id: NORMALTEXTID,
-            //We use h to catch ourselves on https. this unfortunately breaks up large sections of text into much
-            //smaller ones, but it should be ok... I don't know. My parser is stupid lol
-            regex: Regex::new(r#"^[^\[\nh]+"#)?, 
-            match_type : MatchType::Simple(Box::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
-        });
 
         #[allow(unused_variables)]
         {
@@ -492,7 +492,7 @@ impl BBCode
             //characters taken from google's page https://developers.google.com/maps/url-encoding
             //NOTE: removed certain characters from autolinking because they SUCK
             regex: Regex::new(&autolink_regex)?,
-            match_type: MatchType::Simple(Box::new(|c| format!(r#"<a href="{0}" target="_blank" data-autolink>{0}</a>"#, &c[0])))
+            match_type: MatchType::Simple(Box::new(|c| format!(r#"<a href="{0}" target="_blank">{0}</a>"#, &c[0])))
         });
 
             //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
@@ -932,39 +932,40 @@ mod tests {
         simple_url_witharg: ("[url=http://ha4l6o7op9dy.com]furries lol[/url]", r#"<a href="http://ha4l6o7op9dy.com" target="_blank">furries lol</a>"#);
         simple_img: ("[img]https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
         simple_img_nonstd: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png][/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
-        ////NOTE: this one, it's just how I want it to work. IDK how the real bbcode handles this weirdness
+        //NOTE: this one, it's just how I want it to work. IDK how the real bbcode handles this weirdness
         //simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">abc 123"#);
-        ////This also tests auto-closed tags, albeit a simple form
-        //list_basic:  ("[list][*]item 1[/*][*]item 2[/*][*]list[/*][/list]", "<ul><li>item 1</li><li>item 2</li><li>list</li></ul>");
-        //unclosed_basic: ("[b] this is bold [i]also italic[/b] oops close all[/i]", "<b> this is bold <i>also italic</i></b> oops close all");
-        //verbatim_url: ("[url]this[b]is[/b]a no-no[i][/url]", r#"<a target="_blank" href="this[b]is[/b]a no-no[i]">this[b]is[/b]a no-no[i]</a>"#);
-        //inner_hack: ("[[b][/b]b]love[/[b][/b]b]", "[<b></b>b]love[/<b></b>b]");
-        //random_brackets: ("[][[][6][a[ab]c[i]italic[but][][* not] 8[]]][", "[][[][6][a[ab]c<i>italic[but][][* not] 8[]]][</i>");
-        //autolink_basic: ("this is https://google.com ok?", r#"this is <a target="_blank" href="https://google.com">https://google.com</a> ok?"#);
+        simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
+        //This also tests auto-closed tags, albeit a simple form
+        list_basic:  ("[list][*]item 1[/*][*]item 2[/*][*]list[/*][/list]", "<ul><li>item 1</li><li>item 2</li><li>list</li></ul>");
+        unclosed_basic: ("[b] this is bold [i]also italic[/b] oops close all[/i]", "<b> this is bold <i>also italic</i></b> oops close all");
+        verbatim_url: ("[url]this[b]is[/b]a no-no[i][/url]", r#"<a href="this[b]is[/b]a no-no[i]" target="_blank">this[b]is[/b]a no-no[i]</a>"#);
+        inner_hack: ("[[b][/b]b]love[/[b][/b]b]", "[<b></b>b]love[/<b></b>b]");
+        random_brackets: ("[][[][6][a[ab]c[i]italic[but][][* not] 8[]]][", "[][[][6][a[ab]c<i>italic[but][][* not] 8[]]][</i>");
+        autolink_basic: ("this is https://google.com ok?", r#"this is <a href="https://google.com" target="_blank">https://google.com</a> ok?"#);
 
-        //newline_list1: ("[list]\n[*]item", "<ul><li>item</li></ul>");
-        //newline_list2: ("[list]\r\n[*]item", "<ul><li>item</li></ul>");
-        //newline_listmega: ("\n[list]\r\n[*]item\r\n[*]item2 yeah[\r\n\r\n[*]three", "\n<ul><li>item</li><li>item2 yeah[\n</li><li>three</li></ul>");
-        ////Bold, italic, etc should not remove newlines anywhere
-        //newline_bold: ("\n[b]\nhellow\n[/b]\n", "\n<b>\nhellow\n</b>\n");
-        //newline_italic: ("\n[i]\nhellow\n[/i]\n", "\n<i>\nhellow\n</i>\n");
-        //newline_underline: ("\n[u]\nhellow\n[/u]\n", "\n<u>\nhellow\n</u>\n");
-        //newline_strikethrough: ("\n[s]\nhellow\n[/s]\n", "\n<s>\nhellow\n</s>\n");
-        //newline_sup: ("\n[sup]\nhellow\n[/sup]\n", "\n<sup>\nhellow\n</sup>\n");
-        //newline_sub: ("\n[sub]\nhellow\n[/sub]\n", "\n<sub>\nhellow\n</sub>\n");
+        newline_list1: ("[list]\n[*]item", "<ul><li>item</li></ul>");
+        newline_list2: ("[list]\r\n[*]item", "<ul><li>item</li></ul>");
+        newline_listmega: ("\n[list]\r\n[*]item\r\n[*]item2 yeah[\r\n\r\n[*]three", "\n<ul><li>item</li><li>item2 yeah[\n</li><li>three</li></ul>");
+        //Bold, italic, etc should not remove newlines anywhere
+        newline_bold: ("\n[b]\nhellow\n[/b]\n", "\n<b>\nhellow\n</b>\n");
+        newline_italic: ("\n[i]\nhellow\n[/i]\n", "\n<i>\nhellow\n</i>\n");
+        newline_underline: ("\n[u]\nhellow\n[/u]\n", "\n<u>\nhellow\n</u>\n");
+        newline_strikethrough: ("\n[s]\nhellow\n[/s]\n", "\n<s>\nhellow\n</s>\n");
+        newline_sup: ("\n[sup]\nhellow\n[/sup]\n", "\n<sup>\nhellow\n</sup>\n");
+        newline_sub: ("\n[sub]\nhellow\n[/sub]\n", "\n<sub>\nhellow\n</sub>\n");
 
         ////Nicole's bbcode edge cases
-        //e_dangling: ("[b]foo", "<b>foo</b>");
-        //e_normal: ("[b]foo[/b]", "<b>foo</b>");
-        //e_nested: ("[b]foo[b]bar[/b][/b]", "<b>foo<b>bar</b></b>");
-        //e_empty: ("[b]foo[b][/b]bar[/b]", "<b>foo<b></b>bar</b>");
-        //e_closemulti: ("[b]foo[i]bar[u]baz[/b]quux", "<b>foo<i>bar<u>baz</u></i></b>quux");
-        //e_faketag: ("[b]foo[i]bar[u]baz[/fake]quux", "<b>foo<i>bar<u>baz[/fake]quux</u></i></b>");
-        //e_reallyfake: ("[fake][b]foo[i]bar[u]baz[/fake]quux", "[fake]<b>foo<i>bar<u>baz[/fake]quux</u></i></b>");
-        //e_ignoreclose: ("[b]foo[/b]bar[/b][/b][/b]", "<b>foo</b>bar");
-        //e_weirdignoreclose: ("[b]foo[/b]bar[/fake][/b][/fake]", "<b>foo</b>bar[/fake][/fake]");
-        //e_fancytag: ("[[i]b[/i]]", "[<i>b</i>]");
-        //e_escapemadness: ("&[&]<[<]>[>]", "&amp;[&amp;]&lt;[&lt;]&gt;[&gt;]");
+        e_dangling: ("[b]foo", "<b>foo</b>");
+        e_normal: ("[b]foo[/b]", "<b>foo</b>");
+        e_nested: ("[b]foo[b]bar[/b][/b]", "<b>foo<b>bar</b></b>");
+        e_empty: ("[b]foo[b][/b]bar[/b]", "<b>foo<b></b>bar</b>");
+        e_closemulti: ("[b]foo[i]bar[u]baz[/b]quux", "<b>foo<i>bar<u>baz</u></i></b>quux");
+        e_faketag: ("[b]foo[i]bar[u]baz[/fake]quux", "<b>foo<i>bar<u>baz[/fake]quux</u></i></b>");
+        e_reallyfake: ("[fake][b]foo[i]bar[u]baz[/fake]quux", "[fake]<b>foo<i>bar<u>baz[/fake]quux</u></i></b>");
+        e_ignoreclose: ("[b]foo[/b]bar[/b][/b][/b]", "<b>foo</b>bar");
+        e_weirdignoreclose: ("[b]foo[/b]bar[/fake][/b][/fake]", "<b>foo</b>bar[/fake][/fake]");
+        e_fancytag: ("[[i]b[/i]]", "[<i>b</i>]");
+        e_escapemadness: ("&[&]<[<]>[>]", "&amp;[&amp;]&lt;[&lt;]&gt;[&gt;]");
     }
 
     //bbtest_extras! {

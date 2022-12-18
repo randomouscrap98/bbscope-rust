@@ -246,8 +246,8 @@ impl BBCode
         let pre_openchomp; let post_openchomp; let pre_closechomp; let post_closechomp;
         match open_consume {
             Some((pre, post)) => {
-                pre_openchomp = format!("(\r?\n){{0,{}}}", pre);
-                post_openchomp = format!("(\r?\n){{0,{}}}", post);
+                pre_openchomp = format!("(?:\r?\n){{0,{}}}", pre);
+                post_openchomp = format!("(?:\r?\n){{0,{}}}", post);
             },
             None => {
                 pre_openchomp = String::new();
@@ -256,8 +256,8 @@ impl BBCode
         }
         match close_consume {
             Some((pre, post)) => {
-                pre_closechomp = format!("(\r?\n){{0,{}}}", pre);
-                post_closechomp = format!("(\r?\n){{0,{}}}", post);
+                pre_closechomp = format!("(?:\r?\n){{0,{}}}", pre);
+                post_closechomp = format!("(?:\r?\n){{0,{}}}", post);
             },
             None => {
                 pre_closechomp = String::new();
@@ -363,15 +363,15 @@ impl BBCode
 
         #[allow(unused_variables)]
         {
-            Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Box::new(|o,b,c| format!("<b>{}</b>",b))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "i", ScopeInfo::basic(Box::new(|o,b,c| format!("<i>{}</i>",b))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "sup", ScopeInfo::basic(Box::new(|o,b,c| format!("<sup>{}</sup>",b))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "sub", ScopeInfo::basic(Box::new(|o,b,c| format!("<sub>{}</sub>",b))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "u", ScopeInfo::basic(Box::new(|o,b,c| format!("<u>{}</u>",b))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "s", ScopeInfo::basic(Box::new(|o,b,c| format!("<s>{}</s>",b))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "list", ScopeInfo::basic(Box::new(|o,b,c| format!("<ul>{}</ul>",b))), Some((0,1)), Some((0,1)))?;
+            Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Box::new(|o,b,c| format!("<b>{b}</b>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "i", ScopeInfo::basic(Box::new(|o,b,c| format!("<i>{b}</i>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "sup", ScopeInfo::basic(Box::new(|o,b,c| format!("<sup>{b}</sup>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "sub", ScopeInfo::basic(Box::new(|o,b,c| format!("<sub>{b}</sub>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "u", ScopeInfo::basic(Box::new(|o,b,c| format!("<u>{b}</u>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "s", ScopeInfo::basic(Box::new(|o,b,c| format!("<s>{b}</s>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "list", ScopeInfo::basic(Box::new(|o,b,c| format!("<ul>{b}</ul>"))), Some((0,1)), Some((0,1)))?;
             Self::add_tagmatcher(&mut matches, r"\*", ScopeInfo { 
-                only: None, double_closes: true, emit: Box::new(|o,b,c| format!("<li>{}</li>",b))
+                only: None, double_closes: true, emit: Box::new(|o,b,c| format!("<li>{b}</li>"))
             }, Some((1,0)), Some((1,0)))?;
             Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
                 only: Some(vec![NORMALTEXTID, CONSUMETEXTID]), 
@@ -411,10 +411,30 @@ impl BBCode
         Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo::basic(
             Box::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(o,"cite"), b) )
-        ), None, None)?;
+        ), Some((0,1)), Some((0,1)))?;
         Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo::basic(
             Box::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
         ), None, None)?;
+        Self::add_tagmatcher(&mut matches, r"anchor", ScopeInfo {
+            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            double_closes: false,
+            emit: Box::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
+        }, None, None)?;
+        Self::add_tagmatcher(&mut matches, r"icode", ScopeInfo {
+            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            double_closes: false,
+            emit: Box::new(|_o,b,_c| format!(r#"<span class="icode">{b}</span>"#) )
+        }, None, None)?;
+        Self::add_tagmatcher(&mut matches, r"code", ScopeInfo {
+            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            double_closes: false,
+            emit: Box::new(|o,b,_c| format!(r#"<pre{}>{}</pre>"#, Self::attr_or_nothing(o, "data-code"), b) )
+        }, Some((0,1)), Some((0,1)))?;
+        Self::add_tagmatcher(&mut matches, r"youtube", ScopeInfo {
+            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            double_closes: false,
+            emit: Box::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(o, b), b) )
+        }, None, None)?;
         Ok(matches)
         //BBCode::tags_to_matches(vec![
         //    TagInfo { tag: "quote", outtag: "blockquote", tag_type : TagType::DefinedArg("cite"), rawextra : None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::End(1) },
@@ -724,7 +744,14 @@ mod tests {
         h1_simple: ("[h1] so about that header [/h1]", "<h1> so about that header </h1>");
         h2_simple: (" [h2]Not as important", " <h2>Not as important</h2>");
         h3_simple: ("[h3][h3]wHaAt-Are-u-doin[/h3]", "<h3><h3>wHaAt-Are-u-doin</h3></h3>");
+        quote_newlines: ("\n[quote]\n\nthere once was\na boy\n[/quote]\n", "\n<blockquote>\nthere once was\na boy\n</blockquote>");
+        anchor_simple: ("[anchor=Look_Here]The Title[/anchor]", r#"<a name="Look_Here">The Title</a>"#);
+        icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);
+        code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "\n<pre data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
     }
+        //    TagInfo { tag: "anchor", outtag: "a", tag_type : TagType::DefinedArg("name"), rawextra : None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
+        //    TagInfo { tag: "icode", outtag: "span", tag_type : TagType::Simple, rawextra : Some(r#"class="icode""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
+        //    TagInfo { tag: "code", outtag: "pre", tag_type : TagType::DefinedArg("data-code"), rawextra : Some(r#"class="code""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::End(1) },
 
 /* These tests are limitations of the old parser, I don't want to include them
 [quote=foo=bar]...[/quote]

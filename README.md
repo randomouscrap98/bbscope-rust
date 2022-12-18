@@ -21,7 +21,7 @@ And so [s] I'm just like [s] opening tons of [sup] tags? Maybe I'll close this [
 ```
 
 ```html
-And so <s> I&#39;m just like <s> opening tons of <sup> tags? Maybe I&#39;ll close this </sup></s> one</s>
+And so <s> I&#x27;m just like <s> opening tons of <sup> tags? Maybe I&#x27;ll close this </sup></s> one</s>
 ```
 
 All unclosed tags are automatically closed in the correct order, including any that were
@@ -30,13 +30,16 @@ be what you want, but I've found that most older or established bbcode parsers w
 way. With this library, you can feel (generally) safe knowing it will produce proper HTML.
 
 With scoping rules, you also get access to tags which can reject other tags inside of them,
-for "verbatim" sections. For instance, in the extended tagset, I have [code] which
+by specifying the `only` vector (more later). For instance, in the extended tagset, I have 
+[code] which rejects all types of matches except normal text and "garbage" (characters we
+throw away, like \r).
 
 ## Quickstart 
 
 ```rust
-let bbcode = BBCode::default().unwrap(); //Or catch error
+let bbcode = BBCode::default().unwrap(); // Or catch error
 let html = bbcode.parse("[url]https://github.com[/url]")
+// Make sure to reuse the BBCode you created! Creating is expensive!
 ```
 
 Or, if you want the extended set (see next section for list):
@@ -57,34 +60,64 @@ let bbcode2 = bbcode.clone();
 Or, if you want to add your own tag:
 
 ```rust
-//Version 1 is ugly, will probably add helper functions
 let mut matchers = BBCode::basics().unwrap();
-let tags = vec![
-    //These were ommitted but you can add them back in easily!
-    TagInfo::simple("center"),
-    TagInfo::simple("left"),
-    TagInfo::simple("right"),
-];
-let mut mytags = BBCode::tags_to_matches(tags).unwrap();
-matchers.append(&mut mytags);
+
+// How your tag gets turned into HTML; you are given the open tag regex capture, the 
+// pre-parsed pre-escaped body, and the closing tag regex capture (if the user provided it)
+let emitter = |open_capture,body,_c| {
+  //NOTE: in production code, don't `unwrap` the named capture group, it might not exist!
+  let color = open_capture.unwrap().name("attr").unwrap().as_str();
+  format!(r#"<span style="color:{}">{}</span>"#, color, body)
+};
+
+BBCode::add_tagmatcher(&mut matchers, "color", ScopeInfo::basic(Box::new(emitter)), None, None)?;
+
 let bbcode = BBCode::from_matchers(matchers);
 ```
 
-You can also setup more complex tags (but this structure is subject to change)
+The `BBCode::add_tagmatcher` method constructs a bbcode tag parser for you, but you can technically
+construct your own matcher manually which can match almost anything. For now, if you're just trying to add
+basic bbcode tags, you'll see in the above:
+- First parameter is the list to append the matcher to (it adds multiple items).
+- Second is the name of the bbcode tag, all lowercase (so this would match [color])
+- Third is a special "ScopeInfo" struct, but we're calling the "basic" constructor and simply
+  passing a boxed closure rather than configuring the entire ScopeInfo.
+- That boxed closure is a so-called `EmitScope`, which gives you the regex capture for the open
+  tag, the pre-html-escaped, pre-parsed body, and the closing tag regex capture, which you can
+  use to output (emit) the constructed html. Note that, although the opening tag is nearly always
+  given, the closing tag is OFTEN not given, especially if the user did not close their tags. Do
+  not rely on the last parameter (`_c` in the example) existing
+- Note that the opening tag capture has a named group called `attr`, which is the value of the
+  attribute given in the bbcode tag. For instance, if you had `[url=http://whatever]abc[/url]`, 
+  the match `attr` would house the string `http://whatever` (NOT pre-escaped, be careful!)
+- The last two parameters are optional newline consumption before and after the opening and 
+  closing tag. For instance, if you wanted to consume the first newline __before__ the opening tag, and
+  the first newline __after__ the closing tag, those two might look like `Some((1,0)), Some((0,1))`
+  (this is subject to change)
+  
+### Rocket Web example
+There are many web frameworks to choose from for rust, so having an example for each would be a 
+bit difficult. Someone suggested Rocket, so here's an example in 0.5_rc2:
+
 ```rust
-//Other lines same as above
-let tags = vec![
-  //Example of the "code" tag (already implemented in [`Self::extras()`)
-  TagInfo { 
-    tag: "code", 
-    outtag: "pre", 
-    tag_type : TagType::DefinedArg("data-code"),  //This tag tags oenextra item, name in enum is nmme
-    rawextra : Some(r#"class="code""#), 
-    valparse: TagValueParse::ForceVerbatim, 
-    blankconsume: BlankConsume::End(1)  // block level tags consume up to 1 newline after both their starting and closing tags
-  }, 
-];
+#[macro_use] extern crate rocket;
+use rocket::response::content;
+use bbscope::BBCode;
+
+#[launch]
+fn rocket() -> _ {
+    let bbcode = BBCode::default();
+    rocket::build()
+      .mount("/", routes![ index ])
+      .manage(bbcode) //Add as state, you want to reuse the bbcode object!!
+}
+
+#[get("/")]
+fn index(bbcode: &State<BBCode>) -> content::RawHtml<String> {
+  content::RawHtml(String::from(bbcode.parse("Hey, it's [b]bbcode[/b]! [i]Oops, [u]forgot to close[/i] a tag")))
+}
 ```
+
 
 ## Default supported tags:
 
@@ -100,7 +133,7 @@ on any, or at least if they did, it was too late. These are the tags supported i
 - [sub]subscript[/sub]
 - [url=link*]url[/url] (=link attribute optional)
 - [img=link*]link[/img] (only one needed: attribute or inner)
-- [list][*]item[*]item2[/list]
+- [list][\*]item[\*]item2[/list]
 
 Some of those may be nonstandard, and you may be missing some you find standard! If so,
 there's also an optional extended list:
@@ -115,18 +148,19 @@ there's also an optional extended list:
 - [anchor=name]some text linkable with #name[/anchor]
 - [spoiler=name]some text to hide[/spoiler]
 
-And of course, the usual HTML characters are escaped: `', ", &, <, >`
+And of course, the usual HTML characters are escaped everywhere: `', ", &, <, >`
 
 **URLs not inside a url or img tag are auto-linked**, or at least a best attempt
 is made at autolinking them (your mileage may vary)
 
 ## Caveats:
 
-- Output removes \r but RETAINS \n rather than replacing with <br>. This was how an old
+- Output removes \r but RETAINS \n rather than replacing with \<br\>. This was how an old
   bbcode parser I was using worked, and this was written to replace that. If there's a need,
-  I can add modes for \n vs <br>
+  I can add modes for \n vs \<br\>
 - Performance was not a main concern, although you can enable additional performance 
-  features from the regex crate with the `perf` feature
+  features `perf` feature (enables some regex optimizations, about a 4x improvement in my
+  testing)
 - Many rules are arbitrary and meant to copy an existing bbcode parser I used for many years
 
 ## Future

@@ -265,7 +265,7 @@ impl BBCode
                 post_closechomp = String::new();
             }
         }
-        let open_tag = format!(r#"^{}\[{}(=([^\]\n]*))?\]{}"#, pre_openchomp, Self::tag_insensitive(tag), post_openchomp);
+        let open_tag = format!(r#"^{}\[{}(=(?P<attr>[^\]\n]*))?\]{}"#, pre_openchomp, Self::tag_insensitive(tag), post_openchomp);
         let close_tag = format!(r#"^{}\[/{}\]{}"#, pre_closechomp, Self::tag_insensitive(tag), post_closechomp);
         (open_tag, close_tag)
     }
@@ -310,7 +310,7 @@ impl BBCode
     
     fn attr_or_body(opener: Option<Captures>, body: &str) -> String {
         if let Some(opener) = opener { 
-            if let Some(group) = opener.get(2) {
+            if let Some(group) = opener.name("attr") {
                 return String::from(html_escape::encode_quoted_attribute(group.as_str()));
             }
         }
@@ -319,7 +319,7 @@ impl BBCode
 
     fn attr_or_nothing(opener: Option<Captures>, name: &str) -> String {
         if let Some(opener) = opener {
-            if let Some(group) = opener.get(2) {
+            if let Some(group) = opener.name("attr") {
                 //Note: WE insert the space!
                 return format!(" {}=\"{}\"", name, html_escape::encode_quoted_attribute(group.as_str()));
             }
@@ -329,7 +329,7 @@ impl BBCode
 
     fn tag_or_something(opener: Option<Captures>, tag: &str, something: Option<&str>) -> String {
         if let Some(opener) = opener {
-            if let Some(group) = opener.get(2) {
+            if let Some(group) = opener.name("attr") {
                 //Note: WE insert the space!
                 return format!("<{0}>{1}</{0}>", tag, html_escape::encode_quoted_attribute(group.as_str()));
             }

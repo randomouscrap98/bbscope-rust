@@ -1,8 +1,6 @@
-//use std::{sync::Arc, borrow::Cow, thread::Scope};
-
 use std::sync::Arc;
 
-use regex::{Regex, Captures, Error}; //, Match};
+use regex::{Regex, Captures, Error};
 
 // Carlos Sanchez - 2022-12-05
 // - For SBS
@@ -351,23 +349,6 @@ impl BBCode
         Ok(())
     }
 
-    /// Get a vector of the basic taginfos of bbcode. You don't need this if you're using 'basics()'
-    //pub fn basic_tags() -> Vec<TagInfo> {
-    //    vec![
-    //        TagInfo::simple("b"),
-    //        TagInfo::simple("i"),
-    //        TagInfo::simple("sup"),
-    //        TagInfo::simple("sub"),
-    //        TagInfo::simple("u"),
-    //        TagInfo::simple("s"),
-    //        //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
-    //        TagInfo { tag: "list", outtag: "ul", tag_type: TagType::Simple, rawextra: None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::End(1)},
-    //        TagInfo { tag: r"\*", outtag: "li", tag_type: TagType::Simple, rawextra: None, valparse: TagValueParse::DoubleCloses, blankconsume: BlankConsume::Start(1)},
-    //        TagInfo { tag: "url", outtag: "a", tag_type: TagType::DefaultArg("href"), rawextra: Some(r#"target="_blank""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
-    //        TagInfo { tag: "img", outtag: "img", tag_type: TagType::SelfClosing("src"), rawextra: None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None } //Not required to be forced
-    //    ]
-    //}
-
     /// This is to avoid the unicode requirement, which we don't need to check simple ascii tags
     fn tag_insensitive(tag: &str) -> String {
         let mut result = String::with_capacity(tag.len() * 4);
@@ -389,42 +370,36 @@ impl BBCode
         result
     }
     
-    ///// If you have extra tags you want to add, use this function to turn the basic definitions into
-    ///// a vector of real MatchInfo for use in the bbcode system
-    //pub fn tags_to_matches(taginfos: Vec<TagInfo>) -> Result<Vec<MatchInfo>, Error> {
-    //    let mut matches = Vec::new();
-    //    //Next, convert the taginfos to even more "do".
-    //    for tag in taginfos.iter() {
-    //        let mut openchomp = String::from("");
-    //        let mut closechomp = String::from("");
-    //        match tag.blankconsume {
-    //            BlankConsume::None => {}, //do nothing
-    //            BlankConsume::Start(amount) => { openchomp = format!("(\r?\n){{0,{}}}", amount); }
-    //            BlankConsume::End(amount) => { closechomp = format!("(\r?\n){{0,{}}}", amount); }
-    //        }
-    //        //The existing system on SBS doesn't allow spaces in tags at ALL. I don't know if this 
-    //        //much leniency on the = value is present in the old system though...
-    //        let open_tag = format!(r#"^{}\[{}(=[^\]\n]*)?\]{}"#, openchomp, Self::tag_insensitive(tag.tag), closechomp);
-    //        matches.push(MatchInfo {
-    //            regex: Regex::new(&open_tag)?,
-    //            match_type : MatchType::Open(tag.clone())
-    //        });
-    //        let close_tag = format!(r#"^{}\[/{}\]{}"#, openchomp, Self::tag_insensitive(tag.tag), closechomp);
-    //        matches.push(MatchInfo {
-    //            regex: Regex::new(&close_tag)?,
-    //            match_type : MatchType::Close(tag.clone())
-    //        });
-    //    }
-    //    Ok(matches)
-    //}
-
     fn attr_or_body(opener: Option<Captures>, body: &str) -> String {
         if let Some(opener) = opener { //}.len()
             if let Some(group) = opener.get(2) {
-                return String::from(group.as_str());
+                return String::from(html_escape::encode_quoted_attribute(group.as_str()));
             }
         }
-        return String::from(body)
+        return String::from(body);
+    }
+
+    fn attr_or_nothing(opener: Option<Captures>, name: &str) -> String {
+        if let Some(opener) = opener {
+            if let Some(group) = opener.get(2) {
+                //Note: WE insert the space!
+                return format!(" {}=\"{}\"", name, html_escape::encode_quoted_attribute(group.as_str()));
+            }
+        }
+        return String::new();
+    }
+
+    fn tag_or_something(opener: Option<Captures>, tag: &str, something: Option<&str>) -> String {
+        if let Some(opener) = opener {
+            if let Some(group) = opener.get(2) {
+                //Note: WE insert the space!
+                return format!("<{0}>{1}</{0}>", tag, html_escape::encode_quoted_attribute(group.as_str()));
+            }
+        }
+        if let Some(something) = something {
+            return format!("<{0}>{1}</{0}>", tag, html_escape::encode_quoted_attribute(something));
+        }
+        return String::new();
     }
 
     /// Get a vector of ALL basic matchers! This is the function you want to call to get a vector for the bbcode
@@ -432,14 +407,6 @@ impl BBCode
     pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> {
         //First, get the default direct replacements
         let mut matches : Vec<MatchInfo> = Vec::new(); 
-        //Self::html_escapes().iter().map(|e| {
-        //    //Unfortunately, have to allocate string
-        //    let regstring = format!(r"^{}", e.0);
-        //    Ok(MatchInfo { 
-        //        regex: Regex::new(&regstring)?,
-        //        match_type : MatchType::DirectReplace(e.1)
-        //    })
-        //}).collect::<Result<Vec<MatchInfo>, Error>>()?;
 
         //This is an optimization: any large block of characters that has no meaning in bbcode can go straight through.
         matches.push(MatchInfo {
@@ -495,13 +462,7 @@ impl BBCode
             match_type: MatchType::Simple(Box::new(|c| format!(r#"<a href="{0}" target="_blank">{0}</a>"#, &c[0])))
         });
 
-            //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
-            //TagInfo { tag: "url", outtag: "a", tag_type: TagType::DefaultArg("href"), rawextra: Some(r#"target="_blank""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
-            //TagInfo { tag: "img", outtag: "img", tag_type: TagType::SelfClosing("src"), rawextra: None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None } //Not required to be forced
-
-        //let mut tag_matches = Self::tags_to_matches(Self::basic_tags())?;
-        //matches.append(&mut tag_matches);
-
+        //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
         Ok(matches)
     }
 
@@ -511,6 +472,16 @@ impl BBCode
         Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
+        Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo { 
+            only: None,
+            double_closes: false, 
+            emit: Box::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(o,"cite"), b) )
+        }, None, None)?;
+        Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo { 
+            only: None,
+            double_closes: false, 
+            emit: Box::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
+        }, None, None)?;
         Ok(matches)
         //BBCode::tags_to_matches(vec![
         //    TagInfo { tag: "quote", outtag: "blockquote", tag_type : TagType::DefinedArg("cite"), rawextra : None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::End(1) },
@@ -686,52 +657,21 @@ impl BBCode
                     match &tagdo.match_type {
                         MatchType::Simple(closure) => {
                             scoper.add_text(&closure(captures));
-                            //current_scope.body.push_str(&closure(captures));
                         }
-                        //MatchType::Passthrough => {
-                        //    //The entire matched portion can go straight through. This gets us quickly
-                        //    //through chunks of non-bbcode 
-                        //    result.push_str(&captures[0]);
-                        //},
-                        //MatchType::DirectReplace(new_text) => {
-                        //    //The matched chunk has a simple replacement with no rules
-                        //    result.push_str(new_text);
-                        //},
-                        //MatchType::BlockTransform(replacement) => {
-                        //    //need to take the captures and transform it to whatever you wanted. But always be safe! If you don't
-                        //    //want this, hmmmm gotta think about that
-                        //    //result.push_str(&html_escape::encode_quoted_attribute(&argval[1..]));
-                        //    result.push_str(&tagdo.regex.replace(&html_escape::encode_quoted_attribute(&captures[0]), *replacement));
-                        //},
                         MatchType::Open(info) => {
                             //Need to enter a scope. Remember where the beginning of this scope is just in case we need it
                             let new_scope = BBScope {
                                 id: tagdo.id,
-                                info: info.clone(), //tagdo.match_type, 
+                                info: info.clone(),
                                 open_tag_capture: Some(captures),
                                 body: String::new()
-                                //inner_start : (slice.as_ptr() as usize) - (input_ptr as usize),
-                                //has_arg: captures.get(1).is_some()
                             };
                             scoper.add_scope(new_scope);
-                            //By starting a scope, we may close many scopes. Also it'll tell us what it thinks the 
-                            //starting scope looks like (it may change? probably not though)
-                            //let scope_result = scoper.add_scope(new_scope);
-                            //for cscope in scope_result.1 {
-                            //    result = Self::push_close_tag(result, &cscope, input, scope_end);
-                            //}
-                            ////The add_scope function only gives us the close scopes, so we
-                            ////still need to emit the open tag
-                            //result = Self::push_open_tag(result, scope_result.0, &captures);
                         },
                         MatchType::Close => { //(info) => {
                             //Attempt to close the given scope. The scoper will return all the actual scopes
                             //that were closed, which we can dump
                             scoper.close_scope(tagdo.id);
-                            //for cscope in scoper.close_scope(info) {
-                            //    result = Self::push_close_tag(result, &cscope, input, scope_end);
-                            //}
-                            //The close_scope function gives us the scopes to close
                         }
                     }
                 }
@@ -755,13 +695,6 @@ impl BBCode
         }
 
         scoper.dump_remaining()
-        ////At the end, we should close any unclosed scopes
-        //for cscope in scoper.dump_remaining() {
-        //    result = Self::push_close_tag(result, &cscope, input, input.len() as usize);
-        //}
-
-
-        //result
     }
 
     /// This MAY OR MAY NOT profile, depending on your featureset!
@@ -930,6 +863,7 @@ mod tests {
         nested_bold: ("[b]hey[b]extra bold[/b] less bold again[/b]", "<b>hey<b>extra bold</b> less bold again</b>");
         simple_url_default: ("[url]https://google.com[/url]", r#"<a href="https://google.com" target="_blank">https://google.com</a>"#);
         simple_url_witharg: ("[url=http://ha4l6o7op9dy.com]furries lol[/url]", r#"<a href="http://ha4l6o7op9dy.com" target="_blank">furries lol</a>"#);
+        url_escape: ("[url=http'://ha4l<6o7op9dy>.com]furries lol[/url]", r#"<a href="http&#x27;://ha4l&lt;6o7op9dy&gt;.com" target="_blank">furries lol</a>"#);
         simple_img: ("[img]https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
         simple_img_nonstd: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png][/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
         //NOTE: this one, it's just how I want it to work. IDK how the real bbcode handles this weirdness
@@ -968,12 +902,13 @@ mod tests {
         e_escapemadness: ("&[&]<[<]>[>]", "&amp;[&amp;]&lt;[&lt;]&gt;[&gt;]");
     }
 
-    //bbtest_extras! {
-    //    e_emptyquote: ("[quote]...[/quote]", "<blockquote>...</blockquote>");
-    //    e_normalquote: ("[quote=foo]...[/quote]", r#"<blockquote cite="foo">...</blockquote>"#);
-    //    simple_spoiler: ("[spoiler=wow]amazing[/spoiler]", r#"<details class="spoiler"><summary>wow</summary>amazing</details>"#);
-    //    simple_emptyspoiler: ("[spoiler]this[b]is empty[/spoiler]", r#"<details class="spoiler"><summary>Spoiler</summary>this<b>is empty</b></details>"#);
-    //}
+    bbtest_extras! {
+        e_emptyquote: ("[quote]...[/quote]", "<blockquote>...</blockquote>");
+        e_normalquote: ("[quote=foo]...[/quote]", r#"<blockquote cite="foo">...</blockquote>"#);
+        simple_spoiler: ("[spoiler=wow]amazing[/spoiler]", r#"<details class="spoiler"><summary>wow</summary>amazing</details>"#);
+        simple_emptyspoiler: ("[spoiler]this[b]is empty[/spoiler]", r#"<details class="spoiler"><summary>Spoiler</summary>this<b>is empty</b></details>"#);
+        cite_escape: ("[quote=it's<mad>lad]yeah[/quote]",r#"<blockquote cite="it&#x27;s&lt;mad&gt;lad">yeah</blockquote>"#);
+    }
 
 /* These tests are limitations of the old parser, I don't want to include them
 [quote=foo=bar]...[/quote]

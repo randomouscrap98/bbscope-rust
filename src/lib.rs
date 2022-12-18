@@ -18,12 +18,22 @@ static NORMALTEXTID: &str = "normaltext";
 /// The type for your emit closure which will take the open tag capture, body, and close tag capture and 
 /// output whatever you want. used with 
 pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String + Send + Sync>; 
+/// The type for your emit closure when you're doing basic regex replacement with [`MatchType::Simple`]
+pub type EmitSimple = Box<dyn Fn(Captures)->String + Send + Sync>; //Inefficient to use String but we have to in order to support replacements etc
 
 /// Information about a scoped tag with open and close elements. This gives you the power to craft
 /// many kinds of markup, not just bbcode, and have it understand scope
 pub struct ScopeInfo {
+    /// A list of [`MatchInfo`] ids for tags which are allowed to be parsed within the body of 
+    /// this scope. If [`None`], any tag is allowed (default)
     pub only: Option<Vec<&'static str>>,
+    /// Whether or not this scope automatically closes previous scopes of the same type. Generally
+    /// this isn't how tags work: doing [b][b][b]EXTRA BOLD[/b][/b][/b] produces triple bold text.
+    /// However, elements like [*] (list item) benefit from closing the previous scope if it's the
+    /// same type
     pub double_closes: bool,
+    /// The core of the parsing system: your provided closure which transforms the pre-parsed data
+    /// given into HTML (or whatever)
     pub emit: EmitScope, 
 }
 
@@ -53,7 +63,7 @@ impl ScopeInfo {
 /// just use the [`Simple`] option
 pub enum MatchType { 
     /// A match type that requires no scoping rules: just a simple regex replacement (or whatever replacement you want)
-    Simple(Box<dyn Fn(Captures)->String + Send + Sync>), //Inefficient to use String but we have to in order to support replacements etc
+    Simple(EmitSimple), 
     /// The match should expect an open tag, which increases scope and performs open scope rules
     Open(Arc<ScopeInfo>), 
     /// The match should expect a closing tag, which decreases scope and performs close scope rules
@@ -64,8 +74,11 @@ pub enum MatchType {
 /// Not necessary a scoped element, could define eating garbage, passing normal text through, etc.
 /// It's all up to the 'match_type'
 pub struct MatchInfo {
+    /// A unique identifier for you to reference in things like [`ScopeInfo.only`]
     pub id: &'static str,
+    /// The regex for this parse item. Most likely an open or close tag, but you can do anything you want
     pub regex : Regex,
+    /// The type of match, indicates whether to open or close a scope (or perform no scoping)
     pub match_type: MatchType,
 }
 
@@ -75,10 +88,18 @@ pub struct MatchInfo {
 /// A scope for bbcode tags. Scopes increase and decrease as tags are opened and closed. Scopes are placed on a stack
 /// to aid with auto-closing tags
 struct BBScope<'a> {
+    /// Id of the [`MatchInfo`] which produced this scope. Used for tracking, double_closes detection, etc
     id: &'static str,
+    /// The scope information from the [`MatchInfo`] which describes the nature of this current scope. Should
+    /// always be a reference, as it's just informational
     info: Arc<ScopeInfo>,
+    /// The regex capture for the open tag. We save this for later, when we finally emit the completed scope.
+    /// Your [`EmitScope`] closure in [`ScopeInfo`] receives this as the first argument
     open_tag_capture: Option<Captures<'a>>,
-    body: String, //where to dump current result (when this scope is one top)
+    /// The currently retained body of this scope. If the scope is on top, this is where general text goes
+    /// before the closing tag is detected. Your [`EmitScope`] closure in [`ScopeInfo`] receives this as the 
+    /// second argument
+    body: String, 
 }
 
 impl BBScope<'_> {
@@ -233,6 +254,8 @@ impl BBCode
         Ok(Self::from_matchers(Self::basics()?))
     }
 
+    /// Create a BBCode parser from the given list of matchers. If you're building a custom set of tags, 
+    /// or merging [`BBCode::basic()`] with [`BBCode::extras()`] (and maybe more), use this endpoint
     pub fn from_matchers(matchers: Vec<MatchInfo>) -> Self {
         Self {
             matchers: Arc::new(matchers),
@@ -342,7 +365,8 @@ impl BBCode
 
     /// Get a vector of ALL basic matchers! This is the function you want to call to get a vector for the bbcode
     /// generator!
-    pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> {
+    pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> 
+    {
         //First, get the default direct replacements
         let mut matches : Vec<MatchInfo> = Vec::new(); 
 
@@ -360,7 +384,6 @@ impl BBCode
             regex: Regex::new(r#"^[\r]+"#)?, 
             match_type: MatchType::Simple(Box::new(|_c| String::new()))
         });
-
 
         #[allow(unused_variables)]
         {
@@ -405,7 +428,8 @@ impl BBCode
     }
 
     /// Some fancy extra bbcode. Does not include basics! These are nonstandard, you don't have to use them!
-    pub fn extras() -> Result<Vec<MatchInfo>, Error> {
+    pub fn extras() -> Result<Vec<MatchInfo>, Error> 
+    {
         let mut matches : Vec<MatchInfo> = Vec::new(); 
         Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;

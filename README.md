@@ -93,11 +93,11 @@ basic bbcode tags, you'll see in the above:
 - The last two parameters are optional newline consumption before and after the opening and 
   closing tag. For instance, if you wanted to consume the first newline __before__ the opening tag, and
   the first newline __after__ the closing tag, those two might look like `Some((1,0)), Some((0,1))`
-  (this is subject to change)
+  (this may change in the future)
   
 ### Rocket Web example
 There are many web frameworks to choose from for rust, so having an example for each would be a 
-bit difficult. Someone suggested Rocket, so here's an example in 0.5_rc2:
+bit difficult. Someone suggested Rocket, so here's an example in 0.5.0_rc2:
 
 ```rust
 #[macro_use] extern crate rocket;
@@ -159,9 +159,17 @@ is made at autolinking them (your mileage may vary)
   bbcode parser I was using worked, and this was written to replace that. If there's a need,
   I can add modes for \n vs \<br\>
 - Performance was not a main concern, although you can enable additional performance 
-  features `perf` feature (enables some regex optimizations, about a 4x improvement in my
+  features with the `perf` feature (enables some regex optimizations, about a 4x improvement in my
   testing)
 - Many rules are arbitrary and meant to copy an existing bbcode parser I used for many years
+
+## Changelog:
+
+- **0.0.6**: Small bugfix for conditional compilation
+- **0.1.0**: Full rewrite; if using `BBCode::default()`, or `BBCode::basics()` and `BBCode::extras()`,
+  it should still compatible, but if you were creating custom tags at all, the entire system was
+  scrapped in favor of the `ScopeInfo` and `EmitScope` combo
+- **0.1.1**: Small bugfix to enforce Sync + Send on closures (so bbcode can be used across threads)
 
 ## Future
 

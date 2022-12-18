@@ -17,81 +17,8 @@ static NORMALTEXTID: &str = "normaltext";
 
 pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String>; //, //The emmitter for this entire scope
 
-/// A structure to build a bbbcode tag. Nearly all bbcode tags should work through this configuration,
-/// but you may find some are too complex (for now)
-//#[derive(Debug, Clone)]
-//pub struct TagInfo {
-//    ///The tag identity, such as "b", "youtube", etc
-//    pub tag : &'static str,
-//    //The tag to put out as html
-//    pub outtag: &'static str,
-//    pub tag_type: TagType,
-//    pub rawextra: Option<&'static str>, //Just dump this directly into the tag at the end. No checks performed
-//    pub valparse: TagValueParse,
-//    pub blankconsume : BlankConsume
-//}
-//
-//impl TagInfo {
-//    /// Constructors for basic tags. Anything else, you're better off just constructing it normally
-//    pub fn simple(tag: &'static str) -> TagInfo {
-//        TagInfo { tag, outtag: tag, tag_type: TagType::Simple, rawextra: None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::None }
-//    }
-//    /*pub fn normal(tag: &'static str, outtag: &'static str, tag_type: TagType, rawextra: Option<&'static str>) -> TagInfo {
-//        TagInfo { tag, outtag, tag_type, rawextra, valparse
-//    }*/
-//    fn start() -> TagInfo {
-//        TagInfo { tag: "", outtag: "", tag_type: TagType::Start, rawextra: None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::None }
-//    }
-//
-//    /// Does this tag allow other tags inside, or none? Some tag types automatically require no other 
-//    /// tags inside, while others can manually set themselves to verbatim
-//    pub fn is_verbatim(&self) -> bool {
-//        if let TagValueParse::ForceVerbatim = self.valparse {
-//            true
-//        }
-//        else {
-//            match self.tag_type {
-//                TagType::Start => false,
-//                TagType::Simple => false,
-//                TagType::DefinedArg(_) => false,
-//                TagType::DefinedTag(_, _) => false,
-//                TagType::SelfClosing(_) => true,
-//                TagType::DefaultArg(_) => true
-//            }
-//        }
-//    }
-//}
-//
-///// How are values parsed? Basically varying levels of rigidity in having tags
-///// inside other tags
-//#[derive(Debug, Clone)]
-//pub enum TagValueParse {
-//    Normal,
-//    ForceVerbatim,
-//    DoubleCloses
-//}
-//
-///// This is the 'silly' part of the parser. Rather than making some actually generic system, I identified some
-///// standard ways tags are used and just made code around those ways. Probably bad but oh well.
-//#[derive(Debug, Clone)]
-//pub enum TagType {
-//    /// Don't make tags with this type, it's for the system! Should ONLY have one of these! It's like S in a grammar!
-//    Start,          
-//    /// Stuff like [b][/b], no args, normal translation (can change tag name still)
-//    Simple,         
-//    /// CAN have argument defined (but optional), attribute name is given in enum
-//    DefinedArg(&'static str),   
-//    /// Some arguments turn into tags! Crazy... (like spoiler creating a "summary" tag)
-//    DefinedTag(&'static str, Option<&'static str>),   
-//    /// No closing tag, value turns into an arg with the name given in the enum
-//    SelfClosing(&'static str),  
-//    /// The tag enclosed value provides a default for the given attribute, or not if defined. Used for [url] etc
-//    DefaultArg(&'static str),   
-//}
-//
-
-
-
+/// Information about a scoped tag with open and close elements. This gives you the power to craft
+/// many kinds of markup, not just bbcode, and have it understand scope
 pub struct ScopeInfo {
     pub only: Option<Vec<&'static str>>,
     pub double_closes: bool,
@@ -99,6 +26,8 @@ pub struct ScopeInfo {
 }
 
 impl Default for ScopeInfo {
+    /// Create a default scope info with an emitter that only outputs the body of the tags
+    /// (you probably don't want this!)
     fn default() -> Self {
         Self {
             only: None,
@@ -109,6 +38,7 @@ impl Default for ScopeInfo {
 }
 
 impl ScopeInfo {
+    /// Create a basic scope info using only an emiter (a highly common case, you probably want this)
     fn basic(emitter: EmitScope) -> Self {
         let mut result = Self::default();
         result.emit = emitter;
@@ -128,8 +58,9 @@ pub enum MatchType {
     Close
 }
 
-/// Definition for a block level matcher. Analogous to "TypeInfo" but for the greater scope. Should always be
-/// readonly, it is just a definition. Not necessary a tag element, could define eating garbage, escape chars, etc.
+/// Definition for a block level matcher. Should always be readonly, it is just a definition. 
+/// Not necessary a scoped element, could define eating garbage, passing normal text through, etc.
+/// It's all up to the 'match_type'
 pub struct MatchInfo {
     pub id: &'static str,
     pub regex : Regex,
@@ -149,6 +80,7 @@ struct BBScope<'a> {
 }
 
 impl BBScope<'_> {
+    /// Is the given element with id (such as bold/italic/url) allowed to exist inside this scope
     fn is_allowed(&self, id: &str) -> bool {
         if let Some(only) = &self.info.only {
             id == self.id || only.contains(&id)
@@ -157,9 +89,11 @@ impl BBScope<'_> {
             true
         }
     }
-    fn double_closes(&self, id: &str) -> bool {
+    /// Does the opener of this element with given id (such as bold/italic/etc) close this scope?
+    fn closes(&self, id: &str) -> bool {
         self.id == id && self.info.double_closes
     }
+    /// Consume the scope and emit the text. Only do this when you're the top scope on the stack!
     fn emit(self, close_captures: Option<Captures>) -> String {
         let emitter = &self.info.emit;
         emitter(self.open_tag_capture, &self.body, close_captures)
@@ -169,13 +103,14 @@ impl BBScope<'_> {
 /// A container with functions to help manage scopes. It doesn't understand what bbcode is or how the tags should
 /// be formatted, it just handles pushing and popping scopes on the stack
 struct BBScoper<'a> {
-    //start_info: ScopeInfo,
     scopes : Vec<BBScope<'a>>
 }
 
 /// Everything inside BBScoper expects to live as long as the object itself. So everything is 'a
 impl<'a> BBScoper<'a> 
 {
+    /// Create a new scoper service with the starting scope already applied. The starting scope
+    /// is the catch-all for the final string to output, it must exist
     fn new() -> Self { 
         Self { 
             scopes: vec![
@@ -189,10 +124,13 @@ impl<'a> BBScoper<'a>
         }
     }
 
+    /// Given the current state of our scopes, is the element with the given id (such as bold/italic/url)
+    /// allowed to exist as the next element inside us right now? Basically: can the current scope accept this element
     fn is_allowed(&self, id: &str) -> bool {
         self.scopes.last().unwrap().is_allowed(id)
     }
 
+    /// Remove the top scope, emitting the output into the scope below it
     fn close_last(&mut self, close_tag: Option<Captures>) {
         if let Some(scope) = self.scopes.pop() {
             let body = scope.emit(close_tag); //this consumes the scope, which is fine
@@ -203,9 +141,18 @@ impl<'a> BBScoper<'a>
         }
     }
 
+    /// Append a string to the current top scope, useful if you're just passing through normal user text
     fn add_text(&mut self, text: &str) {
+        // I don't know how to do this the right way, I'm sorry
         let mut last_scope = self.scopes.pop().unwrap();
         last_scope.body.push_str(text);
+        self.scopes.push(last_scope);
+    }
+
+    /// Append a single char to the current top scope
+    fn add_char(&mut self, ch: char) {
+        let mut last_scope = self.scopes.pop().unwrap();
+        last_scope.body.push(ch);
         self.scopes.push(last_scope);
     }
 
@@ -216,13 +163,12 @@ impl<'a> BBScoper<'a>
         //let mut result = Vec::new();
         if let Some(topinfo) = self.scopes.last() {
             //oh the thing on top is the same, if we don't want that, close it.
-            if topinfo.double_closes(scope.id) { //topinfo.info.tag == scope.info.tag && matches!(scope.info.valparse, TagValueParse::DoubleCloses){
+            if topinfo.closes(scope.id) { 
                 self.close_last(None);
             }
         }
 
         self.scopes.push(scope);
-        //(self.scopes.last().unwrap(), result) //Kind of a silly return type, might change it later
     }
     
     /// Close the given scope, which should return the scopes that got closed (including the self).
@@ -243,28 +189,19 @@ impl<'a> BBScoper<'a>
         }
 
         //Return all the scopes from the end to the found closed scope. Oh and also remove them
-        if tag_found { //let //Some(body) = tag_found {
-            //let mut result = Vec::with_capacity(scope_count + 1);
+        if tag_found { 
             for _i in 0..scope_count {
-                self.close_last(None); //close_tag)
-                //if let Some(scope) = self.scopes.pop() {
-                //    result.push(scope);
-                //}
-                //else {
-                //    println!("BBScope::close_scope LOGIC ERROR: SCANNED PAST END OF SCOPELIST");
-                //}
+                self.close_last(None); 
             }
-            //result
             scope_count
         }
         else {
             0 //No scopes closed
-            //Vec::new()
         }
     }
 
     /// Consume the scope system while dumping the rest of the scopes in the right order for display
-    fn dump_remaining(mut self) -> String { //Vec<BBScope<'a>> {
+    fn dump_remaining(mut self) -> String { 
         while self.scopes.len() > 1 {
             self.close_last(None)
         }
@@ -472,16 +409,12 @@ impl BBCode
         Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
-        Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo { 
-            only: None,
-            double_closes: false, 
-            emit: Box::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(o,"cite"), b) )
-        }, None, None)?;
-        Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo { 
-            only: None,
-            double_closes: false, 
-            emit: Box::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
-        }, None, None)?;
+        Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo::basic(
+            Box::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(o,"cite"), b) )
+        ), None, None)?;
+        Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo::basic(
+            Box::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
+        ), None, None)?;
         Ok(matches)
         //BBCode::tags_to_matches(vec![
         //    TagInfo { tag: "quote", outtag: "blockquote", tag_type : TagType::DefinedArg("cite"), rawextra : None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::End(1) },
@@ -495,126 +428,6 @@ impl BBCode
         //    TagInfo::simple("h3"),
         //])
     }
-
-    ///// Push an argument="value" part onto the result. Will omit the last " if argval is None
-    //fn push_tagarg(mut result: String, argname: &str, argval: Option<&str>) -> String {
-    //    result.push_str(" ");
-    //    result.push_str(argname);
-    //    result.push_str("=\"");
-    //    //Now we need an html escaper
-    //    if let Some(argval) = argval {
-    //        //NOTE: our matcher grabs the = (for now), that's why the 1
-    //        result.push_str(&html_escape::encode_quoted_attribute(argval));
-    //        result.push_str("\"");
-    //    }
-    //    result
-    //}
-
-    //fn push_newtag(mut result: String, tagname: &str, argval: &str) -> String {
-    //    //Close the old tag, open a new one
-    //    result.push_str("><");
-    //    result.push_str(tagname);
-    //    result.push_str(">");
-    //    //NOTE: our matcher grabs the = (for now), that's why the 1
-    //    result.push_str(&html_escape::encode_quoted_attribute(argval));
-    //    //And close the whole thing off
-    //    result.push_str("</");
-    //    result.push_str(tagname);
-    //    result.push_str(">");
-    //    result
-    //}
-
-    ///// Write the "open" tag to the given result for the given new scope. 
-    //fn push_open_tag(mut result: String, scope: &BBScope, captures: &Captures) -> String {
-    //    result.push_str("<");
-    //    result.push_str(scope.info.outtag);
-    //    //Put the raw stuff first (maybe class, other)
-    //    if let Some(rawextra) = scope.info.rawextra {
-    //        result.push_str(" ");
-    //        result.push_str(rawextra);
-    //    }
-    //    //Now output different stuff depending on the type
-    //    match scope.info.tag_type {
-    //        TagType::Start => {}, //Do nothing
-    //        TagType::Simple => { result.push_str(">"); }, //Just close it, all done!
-    //        TagType::DefinedArg(argname) => {
-    //            if let Some(capture) = captures.get(1) { //Push the argument first
-    //                result = Self::push_tagarg(result, argname, Some(&capture.as_str()[1..]));
-    //            }
-    //            result.push_str(">"); //THEN close it!
-    //        },
-    //        TagType::DefinedTag(tagname, default) => { //These make the argument a new tag 
-    //            if let Some(capture) = captures.get(1) { //Push the argument first
-    //                result = Self::push_newtag(result, tagname, &capture.as_str()[1..]); //+1 here because it's not some?
-    //            }
-    //            else if let Some(default) = default {
-    //                result = Self::push_newtag(result, tagname, default);
-    //            }
-    //            else {
-    //                result.push_str(">"); //If we didn't push a new arg, gotta close the existing tag
-    //            }
-    //        },
-    //        //For the opening tag, 'DefaultArg' and 'SelfClosing' act the same. They could either have the value
-    //        //in the arg, or in the body. Difference is on completion, where self closing just closes (or quits),
-    //        //but DefaultArg may have to copy the value into the body, since we only scanned the arg
-    //        TagType::SelfClosing(argname) | TagType::DefaultArg(argname) => {
-    //            if let Some(capture) = captures.get(1) { //If an argument exists, push it
-    //                result = Self::push_tagarg(result, argname, Some(&capture.as_str()[1..]));
-    //                result.push_str(">"); //THEN close it!
-    //            }
-    //            else {  
-    //                //But if it doesn't, output like it's a SelfClosing, meaning the inner value
-    //                //in bbcode becomes the 'default arg'. This requires a special handler in the
-    //                //closing tag
-    //                result = Self::push_tagarg(result, argname, None);
-    //            }
-    //        },
-    //    }
-
-    //    result
-    //}
-
-    //fn push_just_close_tag(mut result: String, info: &TagInfo) -> String {
-    //    result.push_str("</");
-    //    result.push_str(info.outtag);
-    //    result.push_str(">");
-    //    result
-    //}
-
-    ///// Emit the closing tag for the given scope. This also needs the full input string and the position
-    ///// of the end of this scope, because certain complicated closing tags need it.
-    //fn push_close_tag(mut result: String, scope: &BBScope, input: &str, end: usize) -> String {
-    //    match scope.info.tag_type {
-    //        TagType::SelfClosing(_) => {
-    //            if !scope.has_arg { 
-    //                //If this was the standard style of selfclosing, need output the end of the tag.
-    //                //If it was in the arguments (nonstandard), we already closed it
-    //                result.push_str(r#"">"#);
-    //            }
-    //        },
-    //        TagType::DefaultArg(_) => {
-    //            //This one is complicated. If there were arguments, we simply output the closing 
-    //            //tag, same as a normal tag. But if there was NOT an argument, we're still in the original
-    //            //tag, AND we still have to output the value we captured in this scope
-    //            if scope.has_arg {
-    //                result = Self::push_just_close_tag(result, scope.info);
-    //            }
-    //            else {
-    //                result.push_str(r#"">"#);
-    //                result.push_str(&input[scope.inner_start..end]);
-    //                result = Self::push_just_close_tag(result, scope.info);
-    //            }
-    //        }
-    //        TagType::Start => {
-    //            //Do nothing
-    //        },
-    //        _ => {
-    //            result = Self::push_just_close_tag(result, scope.info);
-    //        }
-    //    }
-
-    //    result
-    //}
 
     /// Main function! You call this to parse your raw bbcode! It also escapes html stuff so it can
     /// be used raw!  Current version keeps newlines as-is and it's expected you use pre-wrap, later
@@ -682,8 +495,7 @@ impl BBCode
                 //is a unicode scalar that could be up to 4 bytes, so we need to know how many 'bytes'
                 //we just popped off
                 if let Some(ch) = slice.chars().next() {
-                    //TODO: OMG FIX THIS
-                    scoper.add_text(&format!("{}", ch));
+                    scoper.add_char(ch);
                     //current_scope.body.push(ch);
                     slice = &slice[ch.len_utf8()..];
                 }
@@ -887,6 +699,7 @@ mod tests {
         newline_strikethrough: ("\n[s]\nhellow\n[/s]\n", "\n<s>\nhellow\n</s>\n");
         newline_sup: ("\n[sup]\nhellow\n[/sup]\n", "\n<sup>\nhellow\n</sup>\n");
         newline_sub: ("\n[sub]\nhellow\n[/sub]\n", "\n<sub>\nhellow\n</sub>\n");
+        consume_attribute: ("[b=haha ok]but maybe? [/b]{no}", "<b>but maybe? </b>{no}");
 
         ////Nicole's bbcode edge cases
         e_dangling: ("[b]foo", "<b>foo</b>");
@@ -908,6 +721,9 @@ mod tests {
         simple_spoiler: ("[spoiler=wow]amazing[/spoiler]", r#"<details class="spoiler"><summary>wow</summary>amazing</details>"#);
         simple_emptyspoiler: ("[spoiler]this[b]is empty[/spoiler]", r#"<details class="spoiler"><summary>Spoiler</summary>this<b>is empty</b></details>"#);
         cite_escape: ("[quote=it's<mad>lad]yeah[/quote]",r#"<blockquote cite="it&#x27;s&lt;mad&gt;lad">yeah</blockquote>"#);
+        h1_simple: ("[h1] so about that header [/h1]", "<h1> so about that header </h1>");
+        h2_simple: (" [h2]Not as important", " <h2>Not as important</h2>");
+        h3_simple: ("[h3][h3]wHaAt-Are-u-doin[/h3]", "<h3><h3>wHaAt-Are-u-doin</h3></h3>");
     }
 
 /* These tests are limitations of the old parser, I don't want to include them

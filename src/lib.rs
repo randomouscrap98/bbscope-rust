@@ -9,13 +9,15 @@ use regex::{Regex, Captures, Error};
 //- early closures close all tags in the previous scope
 //- ignore unmatched closing tags
 //- close all unclosed tags at the end
-//- don't modify whitespace for version 1
+//- block-level tags consume the first newline after the open and close tags
 
 static AUTOLINKID: &str = "autolinker";
 static CONSUMETEXTID : &str = "consumetext";
 static NORMALTEXTID: &str = "normaltext";
 
-pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String>; //, //The emmitter for this entire scope
+/// The type for your emit closure which will take the open tag capture, body, and close tag capture and 
+/// output whatever you want. used with 
+pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String>; 
 
 /// Information about a scoped tag with open and close elements. This gives you the power to craft
 /// many kinds of markup, not just bbcode, and have it understand scope
@@ -46,9 +48,9 @@ impl ScopeInfo {
     }
 }
 
-/// While "TagType" determines how the tag functions at a lower level (such as how it handles arguments), 
-/// this determines how the whole block functions on a greater level. They define how scopes and whole blocks
-/// of text move into the output. This still operates on the idea of "tags" though
+/// This defines how scopes and whole blocks of text move into the output. Basically: is your matcher
+/// using scope or not? If using scope, you need to define an open and close [`MatchInfo`]. If not, 
+/// just use the [`Simple`] option
 pub enum MatchType { 
     /// A match type that requires no scoping rules: just a simple regex replacement (or whatever replacement you want)
     Simple(Box<dyn Fn(Captures)->String>), //Inefficient to use String but we have to in order to support replacements etc
@@ -158,9 +160,8 @@ impl<'a> BBScoper<'a>
 
     /// Add a scope, which may close some existing scopes. The closed scopes are returned in display order.
     /// NOTE: the added infos must live as long as the scope container!
-    fn add_scope(&mut self, scope: BBScope<'a>) { // -> &BBScope {// Vec<BBScope<'a>>) {
+    fn add_scope(&mut self, scope: BBScope<'a>) { 
         //here we assume all taginfos have unique tags because why wouldn't they
-        //let mut result = Vec::new();
         if let Some(topinfo) = self.scopes.last() {
             //oh the thing on top is the same, if we don't want that, close it.
             if topinfo.closes(scope.id) { 
@@ -173,9 +174,9 @@ impl<'a> BBScoper<'a>
     
     /// Close the given scope, which should return the scopes that got closed (including the self).
     /// If no scope could be found, the vector is empty
-    fn close_scope(&mut self, id: &'static str) -> usize { //info: &'a TagInfo) { //-> Vec<BBScope<'a>> {
+    fn close_scope(&mut self, id: &'static str) -> usize { 
         let mut scope_count = 0;
-        let mut tag_found : bool = false; //Option<&String> = None; //false;
+        let mut tag_found : bool = false; 
 
         //Scan backwards, counting. Stop when you find a matching tag. This lets us know the open child scopes
         //that were not closed
@@ -308,7 +309,7 @@ impl BBCode
     }
     
     fn attr_or_body(opener: Option<Captures>, body: &str) -> String {
-        if let Some(opener) = opener { //}.len()
+        if let Some(opener) = opener { 
             if let Some(group) = opener.get(2) {
                 return String::from(html_escape::encode_quoted_attribute(group.as_str()));
             }
@@ -473,8 +474,6 @@ impl BBCode
             {
                 //There should only be one but whatever
                 for captures in tagdo.regex.captures_iter(slice) {
-                    //do this pre-emptively so we're AT the start of the inside of the tag
-                    //let scope_end : usize = slice.as_ptr() as usize - input.as_ptr() as usize;
                     slice = &slice[captures[0].len()..];
                     match &tagdo.match_type {
                         MatchType::Simple(closure) => {
@@ -490,7 +489,7 @@ impl BBCode
                             };
                             scoper.add_scope(new_scope);
                         },
-                        MatchType::Close => { //(info) => {
+                        MatchType::Close => { 
                             //Attempt to close the given scope. The scoper will return all the actual scopes
                             //that were closed, which we can dump
                             scoper.close_scope(tagdo.id);
@@ -505,7 +504,6 @@ impl BBCode
                 //we just popped off
                 if let Some(ch) = slice.chars().next() {
                     scoper.add_char(ch);
-                    //current_scope.body.push(ch);
                     slice = &slice[ch.len_utf8()..];
                 }
                 else {

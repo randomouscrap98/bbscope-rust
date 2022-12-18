@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use regex::{Regex, Captures, Error, Match};
+use regex::{Regex, Captures, Error}; //, Match};
 
 // Carlos Sanchez - 2022-12-05
 // - For SBS
@@ -91,30 +91,18 @@ pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->Strin
 //    DefaultArg(&'static str),   
 //}
 //
-///// How are blanks treated around tags?
-//#[derive(Debug, Clone)]
-//pub enum BlankConsume {
-//    /// Tag does not consume blanks
-//    None,
-//    /// Tag comsumes UP TO the given amount of newlines before the tag
-//    Start(i32),
-//    /// Tag comsumes UP TO the given amount of newlines after the tag
-//    End(i32)
-//}
 
 
 
 pub struct ScopeInfo {
     pub only: Option<Vec<&'static str>>,
     pub double_closes: bool,
-    pub emit: EmitScope, //Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String>, //The emmitter for this entire scope
-    //pub emit: Box<dyn Fn(Captures, &str, Captures)->String>  //First capture is open tag, str is body, last capture is closing tag
+    pub emit: EmitScope, 
 }
 
 impl Default for ScopeInfo {
     fn default() -> Self {
         Self {
-            //disallowed: Vec::new(),
             only: None,
             double_closes: false,
             emit: Box::new(|_o, b, _c| String::from(b))
@@ -123,7 +111,7 @@ impl Default for ScopeInfo {
 }
 
 impl ScopeInfo {
-    fn basic(emitter: EmitScope) -> Self {//dyn Fn(Option<Captures>))
+    fn basic(emitter: EmitScope) -> Self {
         let mut result = Self::default();
         result.emit = emitter;
         result
@@ -133,24 +121,17 @@ impl ScopeInfo {
 /// While "TagType" determines how the tag functions at a lower level (such as how it handles arguments), 
 /// this determines how the whole block functions on a greater level. They define how scopes and whole blocks
 /// of text move into the output. This still operates on the idea of "tags" though
-//#[derive(Debug, Clone)]
 pub enum MatchType { 
+    /// A match type that requires no scoping rules: just a simple regex replacement (or whatever replacement you want)
     Simple(Box<dyn Fn(Captures)->String>), //Inefficient to use String but we have to in order to support replacements etc
-    /// Pass this junk right out as-is
-    //Passthrough,    
     /// The match should expect an open tag, which increases scope and performs open scope rules
-    Open(Arc<ScopeInfo>), //Vec<&'static str>), //This is the disallowed tags
+    Open(Arc<ScopeInfo>), 
     /// The match should expect a closing tag, which decreases scope and performs close scope rules
-    Close//(Box<dyn Fn(Captures, &str, Option<Captures>)->String>), //The emmitter for this entire scope
-    // Note: you can use BlockTransform to craft many kinds of generic matching, if it can use regex! It just won't
-    // be part of the scoping rules! IE it should be an entire block! Also, the match will ALWAYS be html escaped first!
-    //BlockTransform(&'static str),  //Take the full match and transform it into something entirely different
-    //DirectReplace(&'static str)
+    Close
 }
 
 /// Definition for a block level matcher. Analogous to "TypeInfo" but for the greater scope. Should always be
 /// readonly, it is just a definition. Not necessary a tag element, could define eating garbage, escape chars, etc.
-//#[derive(Debug, Clone)]
 pub struct MatchInfo {
     pub id: &'static str,
     pub regex : Regex,
@@ -162,36 +143,21 @@ pub struct MatchInfo {
 
 /// A scope for bbcode tags. Scopes increase and decrease as tags are opened and closed. Scopes are placed on a stack
 /// to aid with auto-closing tags
-//struct BBScope<'a> {
 struct BBScope<'a> {
-    //info: &'a TagInfo,
     id: &'static str,
     info: Arc<ScopeInfo>,
-    //match_info: &'a MatchInfo,
     open_tag_capture: Option<Captures<'a>>,
-    //disallowed: Vec<&'static str>,
     body: String, //where to dump current result (when this scope is one top)
-    //inner_start: usize //, //TERRIBLE! MAYBE?!
-    //has_arg: bool, //May need to change if more configuration needed
 }
 
 impl BBScope<'_> {
     fn is_allowed(&self, id: &str) -> bool {
         if let Some(only) = &self.info.only {
-            only.contains(&id)
+            id == self.id || only.contains(&id)
         }
         else {
             true
         }
-        //for disallow in self.info.disallowed {
-        //    //If EVEN ONE thing disallows this, it is not allowed. 
-        //    if (disallow == "*" && self.id != id ) ||
-        //    (disallow.starts_with("*") && id.ends_with(&disallow[1..])) ||
-        //    (disallow.ends_with("*") && id.starts_with(&disallow[0..disallow.len()-1])) {
-        //        return false;
-        //    }
-        //}
-        //return true;
     }
     fn double_closes(&self, id: &str) -> bool {
         self.id == id && self.info.double_closes
@@ -199,7 +165,6 @@ impl BBScope<'_> {
     fn emit(self, close_captures: Option<Captures>) -> String {
         let emitter = &self.info.emit;
         emitter(self.open_tag_capture, &self.body, close_captures)
-        //if let MatchType::self.match_info
     }
 }
 
@@ -328,7 +293,6 @@ pub struct BBCode {
 impl BBCode 
 {
     /// Get a default bbcode parser. Should hopefully have reasonable defaults!
-    //#[allow(dead_code)]
     pub fn default() -> Result<Self, Error> {
         Ok(Self::from_matchers(Self::basics()?))
     }
@@ -341,31 +305,7 @@ impl BBCode
         }
     }
 
-    ///// The basic direct replacement escapes for HTML. You don't need these if you're using 'basics()'
-    //pub fn html_escapes() -> Vec<(&'static str, &'static str)> {
-    //    vec![
-    //        ("'", "&#39;"),
-    //        ("\"", "&quot;"),
-    //        ("<", "&lt;"),
-    //        (">", "&gt;"),
-    //        ("&", "&amp;"),
-    //        ("\r", "") //why are these even here??
-    //        //NOTE: I have this non-optimization where I remove all \r in messages inside parse 
-    //        //rather than as an escape, then replace http with \r so I don't have to stop on h.
-    //        //It was really stupid though
-    //    ]
-    //}
-
-    //pub fn get_emitter(outtag: &str, attr: Option<&str>, raw_extra: &str, auto_close: bool) -> EmitScope {
-    //    let attr_out = match attr { Some(attr) => format!(""), None => String::new() };
-    //    if auto_close {
-
-    //    }
-    //    else {
-    //        Box::new(|o, b, c| format!("<{0} {1}></{0}>", outtag, raw_extra))
-    //    }
-    //}
-
+    /// Produce the two basic regexes (open and close) for bbcode tags
     pub fn get_tagregex(tag: &'static str, open_consume: Option<(i32,i32)>, close_consume: Option<(i32,i32)>) -> (String, String) 
     {
         let pre_openchomp; let post_openchomp; let pre_closechomp; let post_closechomp;
@@ -389,11 +329,13 @@ impl BBCode
                 post_closechomp = String::new();
             }
         }
-        let open_tag = format!(r#"^{}\[{}(=[^\]\n]*)?\]{}"#, pre_openchomp, Self::tag_insensitive(tag), post_openchomp);
+        let open_tag = format!(r#"^{}\[{}(=([^\]\n]*))?\]{}"#, pre_openchomp, Self::tag_insensitive(tag), post_openchomp);
         let close_tag = format!(r#"^{}\[/{}\]{}"#, pre_closechomp, Self::tag_insensitive(tag), post_closechomp);
         (open_tag, close_tag)
     }
 
+    /// Add the open and close matches to the given vector for the given tag (you must construct ScopeInfo yourself). 
+    /// open_consume and close_consume are the amount of newlines to take before and after the open and close tag
     pub fn add_tagmatcher(matchers: &mut Vec<MatchInfo>, tag: &'static str, info: ScopeInfo, open_consume: Option<(i32,i32)>, close_consume: Option<(i32,i32)>) -> Result<(), Error> { //open_regex: String, close_regex: String) -> Result<(), Error> {
         let (open_tag, close_tag) = Self::get_tagregex(tag, open_consume, close_consume);
         matchers.push(MatchInfo { 
@@ -478,8 +420,8 @@ impl BBCode
 
     fn attr_or_body(opener: Option<Captures>, body: &str) -> String {
         if let Some(opener) = opener { //}.len()
-            if opener.len() > 1 {
-                return String::from(&opener[1]);
+            if let Some(group) = opener.get(2) {
+                return String::from(group.as_str());
             }
         }
         return String::from(body)
@@ -512,21 +454,7 @@ impl BBCode
             //We use h to catch ourselves on https. this unfortunately breaks up large sections of text into much
             //smaller ones, but it should be ok... I don't know. My parser is stupid lol
             regex: Regex::new(r#"^[^\[\nh]+"#)?, 
-            match_type : MatchType::Simple(Box::new(|c| String::from(html_escape::encode_safe(&c[0]))))
-        });
-
-        //This new autolinker is taken from 12 since it works better
-        let url_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*'!?,.;:]*"#;
-        let end_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*']"#;
-        let autolink_regex = format!("^https?://{0}{1}([(]{0}[)]({0}{1})?)?", url_chars, end_chars);
-
-        //Don't forget about autolinking! This is a crappy autolinker and it doesn't matter too much!
-        matches.push(MatchInfo { 
-            id: AUTOLINKID,
-            //characters taken from google's page https://developers.google.com/maps/url-encoding
-            //NOTE: removed certain characters from autolinking because they SUCK
-            regex: Regex::new(&autolink_regex)?,
-            match_type: MatchType::Simple(Box::new(|c| format!(r#"<a target="_blank" href="{0}">{0}</a>"#, &c[0])))
+            match_type : MatchType::Simple(Box::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
         });
 
         #[allow(unused_variables)]
@@ -544,14 +472,29 @@ impl BBCode
             Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
                 only: Some(vec![NORMALTEXTID, CONSUMETEXTID]), 
                 double_closes: false, 
-                emit: Box::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#,b, Self::attr_or_body(o,b)) )
+                emit: Box::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#, Self::attr_or_body(o,b), b) )
             }, None, None)?;
-            Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
+            Self::add_tagmatcher(&mut matches, r"img", ScopeInfo { 
                 only: Some(vec![NORMALTEXTID, CONSUMETEXTID]),
                 double_closes: false, 
                 emit: Box::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(o,b)) )
             }, None, None)?;
         }
+
+        //This new autolinker is taken from 12 since it works better
+        let url_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*'!?,.;:]*"#;
+        let end_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*']"#;
+        let autolink_regex = format!("^https?://{0}{1}([(]{0}[)]({0}{1})?)?", url_chars, end_chars);
+
+        //Don't forget about autolinking! This is a crappy autolinker and it doesn't matter too much!
+        matches.push(MatchInfo { 
+            id: AUTOLINKID,
+            //characters taken from google's page https://developers.google.com/maps/url-encoding
+            //NOTE: removed certain characters from autolinking because they SUCK
+            regex: Regex::new(&autolink_regex)?,
+            match_type: MatchType::Simple(Box::new(|c| format!(r#"<a href="{0}" target="_blank" data-autolink>{0}</a>"#, &c[0])))
+        });
+
             //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
             //TagInfo { tag: "url", outtag: "a", tag_type: TagType::DefaultArg("href"), rawextra: Some(r#"target="_blank""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
             //TagInfo { tag: "img", outtag: "img", tag_type: TagType::SelfClosing("src"), rawextra: None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None } //Not required to be forced
@@ -564,7 +507,11 @@ impl BBCode
 
     /// Some fancy extra bbcode. Does not include basics! These are nonstandard, you don't have to use them!
     pub fn extras() -> Result<Vec<MatchInfo>, Error> {
-        Ok(Vec::new())
+        let mut matches : Vec<MatchInfo> = Vec::new(); 
+        Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
+        Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;
+        Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
+        Ok(matches)
         //BBCode::tags_to_matches(vec![
         //    TagInfo { tag: "quote", outtag: "blockquote", tag_type : TagType::DefinedArg("cite"), rawextra : None, valparse: TagValueParse::Normal, blankconsume: BlankConsume::End(1) },
         //    TagInfo { tag: "anchor", outtag: "a", tag_type : TagType::DefinedArg("name"), rawextra : None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
@@ -703,35 +650,17 @@ impl BBCode
     /// there may be modes for more standard implementations
     pub fn parse(&self, input: &str) -> String 
     {
-        //We know it will be at LEAST as big, and that strings usually double in size
-        //when they grow anyway, so just start at 2X by default
-        //let mut result = String::with_capacity(input.len() * 2);
-
         //Because of utf-8, it's better to just use regex directly all the time?
         let mut slice = &input[0..]; //Not necessary to be this explicit ofc
 
         //Only 'Taginfo' can create scope, so don't worry about "DirectReplace" types
         let mut scoper = BBScoper::new();
-        //let start_info = TagInfo::start();
-        //scoper.add_scope(BBScope { info: &start_info, inner_start: 0, has_arg: false });
-
-        //To determine how far into the string we are
-        //let input_ptr = input.as_ptr();
 
         //While there is string left, keep checking against all the regex. Remove some regex
         //if the current scope is a meanie
         while slice.len() > 0
         {
-            //Slow? IDK, fix it later
-            //let current_scope = match scoper.scopes.last() {
-            //    Some(cs) => cs,
-            //    None => {
-            //        println!("BBCode::parse, ran out of scopes somehow!");
-            //        break;
-            //    }
-            //};
-
-            let mut matched_do : Option<&MatchInfo> = None;
+            let mut matched_info : Option<&MatchInfo> = None;
 
             //figure out which next element matches (if any). This is the terrible optimization part, but
             //these are such small state machines with nothing too crazy that I think it's fine.... maybe.
@@ -741,27 +670,13 @@ impl BBCode
                     continue;
                 }
                 else if matchinfo.regex.is_match(slice) {
-                    matched_do = Some(matchinfo);
+                    matched_info = Some(matchinfo);
                     break;
                 }
-                //if current_scope.info.is_verbatim() {
-                //    match &matchinfo.match_type {
-                //        //If the thing to match is open or close and we're inside a verbatim string, skip the matching if
-                //        //it's not the same tag as the current scope. So, [url]what[url] is fine, [url] will be found
-                //        MatchType::Open(doinfo) | MatchType::Close(doinfo) => { if doinfo.tag != current_scope.info.tag { continue; } }
-                //        MatchType::BlockTransform(_) => continue, //No block transforms inside verbatim no matter what!
-                //        //MatchType::Close(doinfo) => { if doinfo.tag != current_scope.info.tag { continue; } }
-                //        _ => {} //Do nothing
-                //    }
-                //}
-                //if matchinfo.regex.is_match(slice) {
-                //    matched_do = Some(matchinfo);
-                //    break;
-                //}
             }
 
             //SOMETHING matched, which means we do something special to consume the output
-            if let Some(tagdo) = matched_do 
+            if let Some(tagdo) = matched_info 
             {
                 //There should only be one but whatever
                 for captures in tagdo.regex.captures_iter(slice) {
@@ -1007,16 +922,16 @@ mod tests {
         simple_strikethrough: ("[s]hello[/s]", "<s>hello</s>");
         simple_underline: ("[u]hello[/u]", "<u>hello</u>");
         simple_italic: ("[i]hello[/i]", "<i>hello</i>");
-        simple_nospaces: ("[b ]hello[/ b]", "[b ]hello[&#x2F; b]");
+        simple_nospaces: ("[b ]hello[/ b]", "[b ]hello[/ b]");
         //The matches are returned lowercase from regex when insensitive
         simple_insensitive: ("[sUp]hello[/SuP]", "<sup>hello</sup>");
         simple_sensitivevalue: ("[sUp]OK but The CAPITALS[/SuP]YEA", "<sup>OK but The CAPITALS</sup>YEA");
         simple_bolditalic: ("[b][i]hello[/i][/b]", "<b><i>hello</i></b>");
         nested_bold: ("[b]hey[b]extra bold[/b] less bold again[/b]", "<b>hey<b>extra bold</b> less bold again</b>");
-        //simple_url_default: ("[url]https://google.com[/url]", r#"<a target="_blank" href="https://google.com">https://google.com</a>"#);
-        //simple_url_witharg: ("[url=http://ha4l6o7op9dy.com]furries lol[/url]", r#"<a target="_blank" href="http://ha4l6o7op9dy.com">furries lol</a>"#);
-        //simple_img: ("[img]https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
-        //simple_img_nonstd: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png][/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
+        simple_url_default: ("[url]https://google.com[/url]", r#"<a href="https://google.com" target="_blank">https://google.com</a>"#);
+        simple_url_witharg: ("[url=http://ha4l6o7op9dy.com]furries lol[/url]", r#"<a href="http://ha4l6o7op9dy.com" target="_blank">furries lol</a>"#);
+        simple_img: ("[img]https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
+        simple_img_nonstd: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png][/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
         ////NOTE: this one, it's just how I want it to work. IDK how the real bbcode handles this weirdness
         //simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">abc 123"#);
         ////This also tests auto-closed tags, albeit a simple form

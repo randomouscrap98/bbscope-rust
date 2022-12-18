@@ -117,7 +117,7 @@ impl Default for ScopeInfo {
             //disallowed: Vec::new(),
             only: None,
             double_closes: false,
-            emit: Box::new(|o, b, c| String::from(b))
+            emit: Box::new(|_o, b, _c| String::from(b))
         }
     }
 }
@@ -503,7 +503,7 @@ impl BBCode
         matches.push(MatchInfo { 
             id: CONSUMETEXTID,
             regex: Regex::new(r#"^[\r]+"#)?, 
-            match_type: MatchType::Simple(Box::new(|c| String::new()))
+            match_type: MatchType::Simple(Box::new(|_c| String::new()))
         });
 
         //This is an optimization: any large block of characters that has no meaning in bbcode can go straight through.
@@ -529,26 +529,29 @@ impl BBCode
             match_type: MatchType::Simple(Box::new(|c| format!(r#"<a target="_blank" href="{0}">{0}</a>"#, &c[0])))
         });
 
-        Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Box::new(|o,b,c| format!("<b>{}</b>",b))), None, None);
-        Self::add_tagmatcher(&mut matches, "i", ScopeInfo::basic(Box::new(|o,b,c| format!("<i>{}</i>",b))), None, None);
-        Self::add_tagmatcher(&mut matches, "sup", ScopeInfo::basic(Box::new(|o,b,c| format!("<sup>{}</sup>",b))), None, None);
-        Self::add_tagmatcher(&mut matches, "sub", ScopeInfo::basic(Box::new(|o,b,c| format!("<sub>{}</sub>",b))), None, None);
-        Self::add_tagmatcher(&mut matches, "u", ScopeInfo::basic(Box::new(|o,b,c| format!("<u>{}</u>",b))), None, None);
-        Self::add_tagmatcher(&mut matches, "s", ScopeInfo::basic(Box::new(|o,b,c| format!("<s>{}</s>",b))), None, None);
-        Self::add_tagmatcher(&mut matches, "list", ScopeInfo::basic(Box::new(|o,b,c| format!("<ul>{}</ul>",b))), Some((0,1)), Some((0,1)));
-        Self::add_tagmatcher(&mut matches, r"\*", ScopeInfo { 
-            only: None, double_closes: true, emit: Box::new(|o,b,c| format!("<li>{}</li>",b))
-        }, Some((1,0)), Some((1,0)));
-        Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
-            only: Some(vec![NORMALTEXTID, CONSUMETEXTID]), 
-            double_closes: false, 
-            emit: Box::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#,b, Self::attr_or_body(o,b)) )
-        }, None, None);
-        Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
-            only: Some(vec![NORMALTEXTID, CONSUMETEXTID]),
-            double_closes: false, 
-            emit: Box::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(o,b)) )
-        }, None, None);
+        #[allow(unused_variables)]
+        {
+            Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Box::new(|o,b,c| format!("<b>{}</b>",b))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "i", ScopeInfo::basic(Box::new(|o,b,c| format!("<i>{}</i>",b))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "sup", ScopeInfo::basic(Box::new(|o,b,c| format!("<sup>{}</sup>",b))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "sub", ScopeInfo::basic(Box::new(|o,b,c| format!("<sub>{}</sub>",b))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "u", ScopeInfo::basic(Box::new(|o,b,c| format!("<u>{}</u>",b))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "s", ScopeInfo::basic(Box::new(|o,b,c| format!("<s>{}</s>",b))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "list", ScopeInfo::basic(Box::new(|o,b,c| format!("<ul>{}</ul>",b))), Some((0,1)), Some((0,1)))?;
+            Self::add_tagmatcher(&mut matches, r"\*", ScopeInfo { 
+                only: None, double_closes: true, emit: Box::new(|o,b,c| format!("<li>{}</li>",b))
+            }, Some((1,0)), Some((1,0)))?;
+            Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
+                only: Some(vec![NORMALTEXTID, CONSUMETEXTID]), 
+                double_closes: false, 
+                emit: Box::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#,b, Self::attr_or_body(o,b)) )
+            }, None, None)?;
+            Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
+                only: Some(vec![NORMALTEXTID, CONSUMETEXTID]),
+                double_closes: false, 
+                emit: Box::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(o,b)) )
+            }, None, None)?;
+        }
             //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
             //TagInfo { tag: "url", outtag: "a", tag_type: TagType::DefaultArg("href"), rawextra: Some(r#"target="_blank""#), valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None },
             //TagInfo { tag: "img", outtag: "img", tag_type: TagType::SelfClosing("src"), rawextra: None, valparse: TagValueParse::ForceVerbatim, blankconsume: BlankConsume::None } //Not required to be forced
@@ -713,7 +716,7 @@ impl BBCode
         //scoper.add_scope(BBScope { info: &start_info, inner_start: 0, has_arg: false });
 
         //To determine how far into the string we are
-        let input_ptr = input.as_ptr();
+        //let input_ptr = input.as_ptr();
 
         //While there is string left, keep checking against all the regex. Remove some regex
         //if the current scope is a meanie
@@ -763,7 +766,7 @@ impl BBCode
                 //There should only be one but whatever
                 for captures in tagdo.regex.captures_iter(slice) {
                     //do this pre-emptively so we're AT the start of the inside of the tag
-                    let scope_end : usize = slice.as_ptr() as usize - input.as_ptr() as usize;
+                    //let scope_end : usize = slice.as_ptr() as usize - input.as_ptr() as usize;
                     slice = &slice[captures[0].len()..];
                     match &tagdo.match_type {
                         MatchType::Simple(closure) => {
@@ -987,7 +990,7 @@ mod tests {
         lt_single: ("h<ello", "h&lt;ello");
         gt_single: ("h>ello", "h&gt;ello");
         amp_single: ("h&ello", "h&amp;ello");
-        quote_single: ("h'ello", "h&#39;ello");
+        quote_single: ("h'ello", "h&#x27;ello");
         doublequote_single: ("h\"ello", "h&quot;ello");
         return_byebye: ("h\rello", "hello");
         //Because inserting tags without knowing the scope is bad (in our system for now), don't generate
@@ -995,7 +998,7 @@ mod tests {
         newline_br: ("h\nello", "h\nello");
         complex_escape: (
             "it's a %CRAZY% <world> 💙=\"yeah\" 👨‍👨‍👧‍👦>>done", 
-            "it&#39;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"
+            "it&#x27;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"
         );
         //"Simple" means there are no complicated tag structures, or only a single tag (most common)
         simple_bold: ("[b]hello[/b]", "<b>hello</b>");
@@ -1004,12 +1007,12 @@ mod tests {
         simple_strikethrough: ("[s]hello[/s]", "<s>hello</s>");
         simple_underline: ("[u]hello[/u]", "<u>hello</u>");
         simple_italic: ("[i]hello[/i]", "<i>hello</i>");
-        simple_nospaces: ("[b ]hello[/ b]", "[b ]hello[/ b]");
+        simple_nospaces: ("[b ]hello[/ b]", "[b ]hello[&#x2F; b]");
         //The matches are returned lowercase from regex when insensitive
-        //simple_insensitive: ("[sUp]hello[/SuP]", "<sup>hello</sup>");
-        //simple_sensitivevalue: ("[sUp]OK but The CAPITALS[/SuP]YEA", "<sup>OK but The CAPITALS</sup>YEA");
-        //simple_bolditalic: ("[b][i]hello[/i][/b]", "<b><i>hello</i></b>");
-        //nested_bold: ("[b]hey[b]extra bold[/b] less bold again[/b]", "<b>hey<b>extra bold</b> less bold again</b>");
+        simple_insensitive: ("[sUp]hello[/SuP]", "<sup>hello</sup>");
+        simple_sensitivevalue: ("[sUp]OK but The CAPITALS[/SuP]YEA", "<sup>OK but The CAPITALS</sup>YEA");
+        simple_bolditalic: ("[b][i]hello[/i][/b]", "<b><i>hello</i></b>");
+        nested_bold: ("[b]hey[b]extra bold[/b] less bold again[/b]", "<b>hey<b>extra bold</b> less bold again</b>");
         //simple_url_default: ("[url]https://google.com[/url]", r#"<a target="_blank" href="https://google.com">https://google.com</a>"#);
         //simple_url_witharg: ("[url=http://ha4l6o7op9dy.com]furries lol[/url]", r#"<a target="_blank" href="http://ha4l6o7op9dy.com">furries lol</a>"#);
         //simple_img: ("[img]https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);

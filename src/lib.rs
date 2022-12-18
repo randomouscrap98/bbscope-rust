@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, borrow::Cow, thread::Scope};
 
 use regex::{Regex, Captures, Error};
 
@@ -101,7 +101,7 @@ use regex::{Regex, Captures, Error};
 pub struct ScopeInfo {
     pub disallowed: Vec<&'static str>,
     pub double_closes: bool,
-    pub emit: Box<dyn Fn(Captures, &str, Option<Captures>)->String>, //The emmitter for this entire scope
+    pub emit: Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String>, //The emmitter for this entire scope
     //pub emit: Box<dyn Fn(Captures, &str, Captures)->String>  //First capture is open tag, str is body, last capture is closing tag
 }
 
@@ -114,7 +114,7 @@ pub enum MatchType {
     /// Pass this junk right out as-is
     //Passthrough,    
     /// The match should expect an open tag, which increases scope and performs open scope rules
-    Open(ScopeInfo), //Vec<&'static str>), //This is the disallowed tags
+    Open(Arc<ScopeInfo>), //Vec<&'static str>), //This is the disallowed tags
     /// The match should expect a closing tag, which decreases scope and performs close scope rules
     Close//(Box<dyn Fn(Captures, &str, Option<Captures>)->String>), //The emmitter for this entire scope
     // Note: you can use BlockTransform to craft many kinds of generic matching, if it can use regex! It just won't
@@ -141,9 +141,9 @@ pub struct MatchInfo {
 struct BBScope<'a> {
     //info: &'a TagInfo,
     id: &'static str,
-    info: &'a ScopeInfo,
+    info: Arc<ScopeInfo>,
     //match_info: &'a MatchInfo,
-    open_tag_capture: Captures<'a>,
+    open_tag_capture: Option<Captures<'a>>,
     //disallowed: Vec<&'static str>,
     body: String, //where to dump current result (when this scope is one top)
     //inner_start: usize //, //TERRIBLE! MAYBE?!
@@ -151,6 +151,16 @@ struct BBScope<'a> {
 }
 
 impl BBScope<'_> {
+    //fn new_starter() -> Self {
+    //    Self {
+    //        id: "STARTING_SCOPE",
+    //        body: String::new(),
+    //        info: Arc::new(ScopeInfo {
+
+    //        }),
+    //        open_tag_capture: None
+    //    }
+    //}
     fn is_allowed(&self, id: &str) -> bool {
         for disallow in self.info.disallowed {
             //If EVEN ONE thing disallows this, it is not allowed. 
@@ -175,13 +185,59 @@ impl BBScope<'_> {
 /// A container with functions to help manage scopes. It doesn't understand what bbcode is or how the tags should
 /// be formatted, it just handles pushing and popping scopes on the stack
 struct BBScoper<'a> {
+    //start_info: ScopeInfo,
     scopes : Vec<BBScope<'a>>
 }
 
 /// Everything inside BBScoper expects to live as long as the object itself. So everything is 'a
 impl<'a> BBScoper<'a> 
 {
-    fn new() -> Self { BBScoper { scopes: Vec::new() }}
+    fn new() -> Self { 
+        //let mut result = Self { 
+        Self { 
+            //start_info: ScopeInfo { 
+            //    disallowed: Vec::new(), 
+            //    double_closes: true, 
+            //    emit: Box::new(|o, b, c| String::from(b))
+            //},
+            scopes: vec![
+                BBScope { 
+                    id: "STARTING_SCOPE", 
+                    info: Arc::new(ScopeInfo { 
+                        disallowed: Vec::new(), 
+                        double_closes: true, 
+                        emit: Box::new(|o, b, c| String::from(b))
+                    }),
+                    //&result.start_info, 
+                    open_tag_capture: None, 
+                    body: String::new() 
+                }
+            ]//Vec::new() 
+        }
+        //result.scopes.push(
+        //BBScope { 
+        //    id: "STARTING_SCOPE", 
+        //    info: Arc::new(ScopeInfo { 
+        //        disallowed: Vec::new(), 
+        //        double_closes: true, 
+        //        emit: Box::new(|o, b, c| String::from(b))
+        //    }),
+        //    &result.start_info, 
+        //    open_tag_capture: None, 
+        //    body: String::new() 
+        //});
+        //result
+    }
+
+
+    //    Self {
+    //        id: "STARTING_SCOPE",
+    //        body: String::new(),
+    //        info: Arc::new(ScopeInfo {
+
+    //        }),
+    //        open_tag_capture: None
+    //    }
 
     fn close_last(&mut self, close_tag: Option<Captures>) {
         if let Some(scope) = self.scopes.pop() {
@@ -202,7 +258,7 @@ impl<'a> BBScoper<'a>
         if let Some(topinfo) = self.scopes.last() {
             //oh the thing on top is the same, if we don't want that, close it.
             if topinfo.double_closes(scope.id) { //topinfo.info.tag == scope.info.tag && matches!(scope.info.valparse, TagValueParse::DoubleCloses){
-                self.close_loast(None);
+                self.close_last(None);
             }
         }
 
@@ -231,12 +287,13 @@ impl<'a> BBScoper<'a>
         if tag_found { //let //Some(body) = tag_found {
             //let mut result = Vec::with_capacity(scope_count + 1);
             for _i in 0..scope_count {
-                if let Some(scope) = self.scopes.pop() {
-                    result.push(scope);
-                }
-                else {
-                    println!("BBScope::close_scope LOGIC ERROR: SCANNED PAST END OF SCOPELIST");
-                }
+                self.close_last(None); //close_tag)
+                //if let Some(scope) = self.scopes.pop() {
+                //    result.push(scope);
+                //}
+                //else {
+                //    println!("BBScope::close_scope LOGIC ERROR: SCANNED PAST END OF SCOPELIST");
+                //}
             }
             //result
             scope_count
@@ -248,8 +305,11 @@ impl<'a> BBScoper<'a>
     }
 
     /// Consume the scope system while dumping the rest of the scopes in the right order for display
-    fn dump_remaining(self) -> Vec<BBScope<'a>> {
-        self.scopes.into_iter().rev().collect()
+    fn dump_remaining(self) -> String { //Vec<BBScope<'a>> {
+        while self.scopes.len() > 1 {
+            self.close_last(None)
+        }
+        self.scopes.last().unwrap().emit(None)
     }
 }
 
@@ -551,15 +611,15 @@ impl BBCode
     {
         //We know it will be at LEAST as big, and that strings usually double in size
         //when they grow anyway, so just start at 2X by default
-        let mut result = String::with_capacity(input.len() * 2);
+        //let mut result = String::with_capacity(input.len() * 2);
 
         //Because of utf-8, it's better to just use regex directly all the time?
         let mut slice = &input[0..]; //Not necessary to be this explicit ofc
 
         //Only 'Taginfo' can create scope, so don't worry about "DirectReplace" types
         let mut scoper = BBScoper::new();
-        let start_info = TagInfo::start();
-        scoper.add_scope(BBScope { info: &start_info, inner_start: 0, has_arg: false });
+        //let start_info = TagInfo::start();
+        //scoper.add_scope(BBScope { info: &start_info, inner_start: 0, has_arg: false });
 
         //To determine how far into the string we are
         let input_ptr = input.as_ptr();
@@ -616,7 +676,7 @@ impl BBCode
                     slice = &slice[captures[0].len()..];
                     match &tagdo.match_type {
                         MatchType::Simple(closure) => {
-                            current_scope.result.push_str(&closure(captures));
+                            current_scope.body.push_str(&closure(captures));
                         }
                         //MatchType::Passthrough => {
                         //    //The entire matched portion can go straight through. This gets us quickly
@@ -636,26 +696,31 @@ impl BBCode
                         MatchType::Open(info) => {
                             //Need to enter a scope. Remember where the beginning of this scope is just in case we need it
                             let new_scope = BBScope {
-                                info, 
-                                inner_start : (slice.as_ptr() as usize) - (input_ptr as usize),
-                                has_arg: captures.get(1).is_some()
+                                id: tagdo.id,
+                                info: info.clone(), //tagdo.match_type, 
+                                open_tag_capture: Some(captures),
+                                body: String::new()
+                                //inner_start : (slice.as_ptr() as usize) - (input_ptr as usize),
+                                //has_arg: captures.get(1).is_some()
                             };
+                            scoper.add_scope(new_scope);
                             //By starting a scope, we may close many scopes. Also it'll tell us what it thinks the 
                             //starting scope looks like (it may change? probably not though)
-                            let scope_result = scoper.add_scope(new_scope);
-                            for cscope in scope_result.1 {
-                                result = Self::push_close_tag(result, &cscope, input, scope_end);
-                            }
-                            //The add_scope function only gives us the close scopes, so we
-                            //still need to emit the open tag
-                            result = Self::push_open_tag(result, scope_result.0, &captures);
+                            //let scope_result = scoper.add_scope(new_scope);
+                            //for cscope in scope_result.1 {
+                            //    result = Self::push_close_tag(result, &cscope, input, scope_end);
+                            //}
+                            ////The add_scope function only gives us the close scopes, so we
+                            ////still need to emit the open tag
+                            //result = Self::push_open_tag(result, scope_result.0, &captures);
                         },
-                        MatchType::Close(info) => {
+                        MatchType::Close => { //(info) => {
                             //Attempt to close the given scope. The scoper will return all the actual scopes
                             //that were closed, which we can dump
-                            for cscope in scoper.close_scope(info) {
-                                result = Self::push_close_tag(result, &cscope, input, scope_end);
-                            }
+                            scoper.close_scope(tagdo.id);
+                            //for cscope in scoper.close_scope(info) {
+                            //    result = Self::push_close_tag(result, &cscope, input, scope_end);
+                            //}
                             //The close_scope function gives us the scopes to close
                         }
                     }
@@ -667,7 +732,7 @@ impl BBCode
                 //is a unicode scalar that could be up to 4 bytes, so we need to know how many 'bytes'
                 //we just popped off
                 if let Some(ch) = slice.chars().next() {
-                    result.push(ch);
+                    current_scope.body.push(ch);
                     slice = &slice[ch.len_utf8()..];
                 }
                 else {
@@ -677,12 +742,14 @@ impl BBCode
             }
         }
 
-        //At the end, we should close any unclosed scopes
-        for cscope in scoper.dump_remaining() {
-            result = Self::push_close_tag(result, &cscope, input, input.len() as usize);
-        }
+        scoper.dump_remaining()
+        ////At the end, we should close any unclosed scopes
+        //for cscope in scoper.dump_remaining() {
+        //    result = Self::push_close_tag(result, &cscope, input, input.len() as usize);
+        //}
 
-        result
+
+        //result
     }
 
     /// This MAY OR MAY NOT profile, depending on your featureset!

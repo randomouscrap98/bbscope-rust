@@ -11,7 +11,7 @@ Where you have unmatching closing tags. While a simple regex replacement may han
 any number of ways, this library will produce:
 
 ```html
-<b>This is bold! <i>AND ITALIC?</i></b> oops where&#39;s ?
+<b>This is bold! <i>AND ITALIC?</i></b> oops where&#x27;s ?
 ```
 
 Another example:

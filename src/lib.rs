@@ -363,6 +363,10 @@ impl BBCode
         return String::new();
     }
 
+    pub fn plaintext_ids() -> Vec<&'static str> {
+        vec![NORMALTEXTID, CONSUMETEXTID]
+    }
+
     /// Get a vector of ALL basic matchers! This is the function you want to call to get a vector for the bbcode
     /// generator!
     pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> 
@@ -398,12 +402,12 @@ impl BBCode
                 only: None, double_closes: true, emit: Box::new(|o,b,c| format!("<li>{b}</li>"))
             }, Some((1,0)), Some((1,0)))?;
             Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
-                only: Some(vec![NORMALTEXTID, CONSUMETEXTID]), 
+                only: Some(Self::plaintext_ids()),
                 double_closes: false, 
                 emit: Box::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#, Self::attr_or_body(o,b), b) )
             }, None, None)?;
             Self::add_tagmatcher(&mut matches, r"img", ScopeInfo { 
-                only: Some(vec![NORMALTEXTID, CONSUMETEXTID]),
+                only: Some(Self::plaintext_ids()),
                 double_closes: false, 
                 emit: Box::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(o,b)) )
             }, None, None)?;
@@ -441,22 +445,22 @@ impl BBCode
             Box::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
         ), None, None)?;
         Self::add_tagmatcher(&mut matches, r"anchor", ScopeInfo {
-            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            only: Some(Self::plaintext_ids()),
             double_closes: false,
             emit: Box::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
         }, None, None)?;
         Self::add_tagmatcher(&mut matches, r"icode", ScopeInfo {
-            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            only: Some(Self::plaintext_ids()),
             double_closes: false,
             emit: Box::new(|_o,b,_c| format!(r#"<span class="icode">{b}</span>"#) )
         }, None, None)?;
         Self::add_tagmatcher(&mut matches, r"code", ScopeInfo {
-            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            only: Some(Self::plaintext_ids()),
             double_closes: false,
-            emit: Box::new(|o,b,_c| format!(r#"<pre{}>{}</pre>"#, Self::attr_or_nothing(o, "data-code"), b) )
+            emit: Box::new(|o,b,_c| format!(r#"<pre class="code"{}>{}</pre>"#, Self::attr_or_nothing(o, "data-code"), b) )
         }, Some((0,1)), Some((0,1)))?;
         Self::add_tagmatcher(&mut matches, r"youtube", ScopeInfo {
-            only: Some(vec![NORMALTEXTID,CONSUMETEXTID]),
+            only: Some(Self::plaintext_ids()),
             double_closes: false,
             emit: Box::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(o, b), b) )
         }, None, None)?;
@@ -758,7 +762,7 @@ mod tests {
         quote_newlines: ("\n[quote]\n\nthere once was\na boy\n[/quote]\n", "\n<blockquote>\nthere once was\na boy\n</blockquote>");
         anchor_simple: ("[anchor=Look_Here]The Title[/anchor]", r#"<a name="Look_Here">The Title</a>"#);
         icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);
-        code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "\n<pre data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
+        code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "\n<pre class=\"code\" data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
     }
 
 /* These tests are limitations of the old parser, I don't want to include them

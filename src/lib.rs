@@ -17,9 +17,9 @@ static NORMALTEXTID: &str = "normaltext";
 
 /// The type for your emit closure which will take the open tag capture, body, and close tag capture and 
 /// output whatever you want. used with 
-pub type EmitScope = Box<dyn Fn(Option<Captures>, &str, Option<Captures>)->String + Send + Sync>; 
+pub type EmitScope = Arc<dyn Fn(Option<Captures>, &str, Option<Captures>)->String + Send + Sync>; 
 /// The type for your emit closure when you're doing basic regex replacement with [`MatchType::Simple`]
-pub type EmitSimple = Box<dyn Fn(Captures)->String + Send + Sync>; //Inefficient to use String but we have to in order to support replacements etc
+pub type EmitSimple = Arc<dyn Fn(Captures)->String + Send + Sync>; //Inefficient to use String but we have to in order to support replacements etc
 
 /// Information about a scoped tag with open and close elements. This gives you the power to craft
 /// many kinds of markup, not just bbcode, and have it understand scope
@@ -44,7 +44,7 @@ impl Default for ScopeInfo {
         Self {
             only: None,
             double_closes: false,
-            emit: Box::new(|_o, b, _c| String::from(b))
+            emit: Arc::new(|_o, b, _c| String::from(b))
         }
     }
 }
@@ -264,6 +264,33 @@ impl BBCode
         }
     }
 
+    /// Convert the current bbcode instance to one which consumes all tags it used to parse. The raw text
+    /// SHOULD be left untouched (I think?)
+    pub fn to_consumer(&mut self) 
+    {
+        let new_matchers : Vec<MatchInfo> = 
+            self.matchers.iter().map(|m| 
+            { 
+                match &m.match_type {
+                    MatchType::Open(_) | MatchType::Close => {
+                        MatchInfo {
+                            id: m.id,
+                            regex: m.regex.clone(),
+                            match_type: MatchType::Simple(Arc::new(|_| String::new()))
+                        }
+                    },
+                    MatchType::Simple(f) => {
+                        MatchInfo {
+                            id: m.id,
+                            regex: m.regex.clone(),
+                            match_type: MatchType::Simple(f.clone())
+                        }
+                    }
+                }
+            }).collect();
+        self.matchers = Arc::new(new_matchers);
+    }
+
     /// Produce the two basic regexes (open and close) for bbcode tags
     pub fn get_tagregex(tag: &'static str, open_consume: Option<(i32,i32)>, close_consume: Option<(i32,i32)>) -> (String, String) 
     {
@@ -380,36 +407,36 @@ impl BBCode
             //We use h to catch ourselves on https. this unfortunately breaks up large sections of text into much
             //smaller ones, but it should be ok... I don't know. My parser is stupid lol
             regex: Regex::new(r#"^[^\[\n\rh]+"#)?, 
-            match_type : MatchType::Simple(Box::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
+            match_type : MatchType::Simple(Arc::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
         });
 
         matches.push(MatchInfo { 
             id: CONSUMETEXTID,
             regex: Regex::new(r#"^[\r]+"#)?, 
-            match_type: MatchType::Simple(Box::new(|_c| String::new()))
+            match_type: MatchType::Simple(Arc::new(|_c| String::new()))
         });
 
         #[allow(unused_variables)]
         {
-            Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Box::new(|o,b,c| format!("<b>{b}</b>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "i", ScopeInfo::basic(Box::new(|o,b,c| format!("<i>{b}</i>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "sup", ScopeInfo::basic(Box::new(|o,b,c| format!("<sup>{b}</sup>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "sub", ScopeInfo::basic(Box::new(|o,b,c| format!("<sub>{b}</sub>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "u", ScopeInfo::basic(Box::new(|o,b,c| format!("<u>{b}</u>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "s", ScopeInfo::basic(Box::new(|o,b,c| format!("<s>{b}</s>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "list", ScopeInfo::basic(Box::new(|o,b,c| format!("<ul>{b}</ul>"))), Some((0,1)), Some((0,1)))?;
+            Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Arc::new(|o,b,c| format!("<b>{b}</b>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "i", ScopeInfo::basic(Arc::new(|o,b,c| format!("<i>{b}</i>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "sup", ScopeInfo::basic(Arc::new(|o,b,c| format!("<sup>{b}</sup>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "sub", ScopeInfo::basic(Arc::new(|o,b,c| format!("<sub>{b}</sub>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "u", ScopeInfo::basic(Arc::new(|o,b,c| format!("<u>{b}</u>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "s", ScopeInfo::basic(Arc::new(|o,b,c| format!("<s>{b}</s>"))), None, None)?;
+            Self::add_tagmatcher(&mut matches, "list", ScopeInfo::basic(Arc::new(|o,b,c| format!("<ul>{b}</ul>"))), Some((0,1)), Some((0,1)))?;
             Self::add_tagmatcher(&mut matches, r"\*", ScopeInfo { 
-                only: None, double_closes: true, emit: Box::new(|o,b,c| format!("<li>{b}</li>"))
+                only: None, double_closes: true, emit: Arc::new(|o,b,c| format!("<li>{b}</li>"))
             }, Some((1,0)), Some((1,0)))?;
             Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
                 only: Some(Self::plaintext_ids()),
                 double_closes: false, 
-                emit: Box::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#, Self::attr_or_body(o,b), b) )
+                emit: Arc::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#, Self::attr_or_body(o,b), b) )
             }, None, None)?;
             Self::add_tagmatcher(&mut matches, r"img", ScopeInfo { 
                 only: Some(Self::plaintext_ids()),
                 double_closes: false, 
-                emit: Box::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(o,b)) )
+                emit: Arc::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(o,b)) )
             }, None, None)?;
         }
 
@@ -424,7 +451,7 @@ impl BBCode
             //characters taken from google's page https://developers.google.com/maps/url-encoding
             //NOTE: removed certain characters from autolinking because they SUCK
             regex: Regex::new(&autolink_regex)?,
-            match_type: MatchType::Simple(Box::new(|c| format!(r#"<a href="{0}" target="_blank">{0}</a>"#, &c[0])))
+            match_type: MatchType::Simple(Arc::new(|c| format!(r#"<a href="{0}" target="_blank">{0}</a>"#, &c[0])))
         });
 
         //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
@@ -435,34 +462,34 @@ impl BBCode
     pub fn extras() -> Result<Vec<MatchInfo>, Error> 
     {
         let mut matches : Vec<MatchInfo> = Vec::new(); 
-        Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
-        Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;
-        Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Box::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
+        Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
+        Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;
+        Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo::basic(
-            Box::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(o,"cite"), b) )
+            Arc::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(o,"cite"), b) )
         ), Some((0,1)), Some((0,1)))?;
         Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo::basic(
-            Box::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
+            Arc::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
         ), None, None)?;
         Self::add_tagmatcher(&mut matches, r"anchor", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
-            emit: Box::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
+            emit: Arc::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
         }, None, None)?;
         Self::add_tagmatcher(&mut matches, r"icode", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
-            emit: Box::new(|_o,b,_c| format!(r#"<span class="icode">{b}</span>"#) )
+            emit: Arc::new(|_o,b,_c| format!(r#"<span class="icode">{b}</span>"#) )
         }, None, None)?;
         Self::add_tagmatcher(&mut matches, r"code", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
-            emit: Box::new(|o,b,_c| format!(r#"<pre class="code"{}>{}</pre>"#, Self::attr_or_nothing(o, "data-code"), b) )
+            emit: Arc::new(|o,b,_c| format!(r#"<pre class="code"{}>{}</pre>"#, Self::attr_or_nothing(o, "data-code"), b) )
         }, Some((0,1)), Some((0,1)))?;
         Self::add_tagmatcher(&mut matches, r"youtube", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
-            emit: Box::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(o, b), b) )
+            emit: Arc::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(o, b), b) )
         }, None, None)?;
         Ok(matches)
     }
@@ -593,6 +620,23 @@ mod tests {
                 let mut extras = BBCode::extras().unwrap();
                 matchers.append(&mut extras);
                 let bbcode = BBCode::from_matchers(matchers);
+                let (input, expected) = $value;
+                assert_eq!(bbcode.parse(input), expected);
+            }
+        )*
+        }
+    }
+
+    macro_rules! bbtest_consumer {
+        ($($name:ident: $value:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let mut matchers = BBCode::basics().unwrap();
+                let mut extras = BBCode::extras().unwrap();
+                matchers.append(&mut extras);
+                let mut bbcode = BBCode::from_matchers(matchers);
+                bbcode.to_consumer();
                 let (input, expected) = $value;
                 assert_eq!(bbcode.parse(input), expected);
             }
@@ -765,6 +809,11 @@ mod tests {
         code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "\n<pre class=\"code\" data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
     }
 
+    bbtest_consumer! {
+        consume_standard: ("[b]wow[/b] but like [i]uh no scoping [s] rules [/sup] and ugh[/quote]", "wow but like uh no scoping  rules  and ugh");
+        //Remember, regex is still the same, so that "code" tag still consumes whitespace
+        consume_stillescape: ("<>'\"oof[img=wow][url][code][/url][/code]\n", "&lt;&gt;&#x27;&quot;oof");
+    }
 /* These tests are limitations of the old parser, I don't want to include them
 [quote=foo=bar]...[/quote]
 <blockquote>...</blockquote>

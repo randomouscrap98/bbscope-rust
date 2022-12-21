@@ -70,7 +70,7 @@ let emitter = |open_capture,body,_c| {
   format!(r#"<span style="color:{}">{}</span>"#, color, body)
 };
 
-BBCode::add_tagmatcher(&mut matchers, "color", ScopeInfo::basic(Box::new(emitter)), None, None)?;
+BBCode::add_tagmatcher(&mut matchers, "color", ScopeInfo::basic(Arc::new(emitter)), None, None)?;
 
 let bbcode = BBCode::from_matchers(matchers);
 ```

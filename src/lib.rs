@@ -315,7 +315,7 @@ impl BBCode
                 post_closechomp = String::new();
             }
         }
-        let open_tag = format!(r#"^{}\[{}(=(?P<attr>[^\]\n]*))?\]{}"#, pre_openchomp, Self::tag_insensitive(tag), post_openchomp);
+        let open_tag = format!(r#"^{0}\[{1}((?:[ \t]+{1})?=(?P<attr>[^\]\n]*))?\]{2}"#, pre_openchomp, Self::tag_insensitive(tag), post_openchomp);
         let close_tag = format!(r#"^{}\[/{}\]{}"#, pre_closechomp, Self::tag_insensitive(tag), post_closechomp);
         (open_tag, close_tag)
     }
@@ -799,6 +799,7 @@ mod tests {
         e_normalquote: ("[quote=foo]...[/quote]", r#"<blockquote cite="foo">...</blockquote>"#);
         simple_spoiler: ("[spoiler=wow]amazing[/spoiler]", r#"<details class="spoiler"><summary>wow</summary>amazing</details>"#);
         simple_emptyspoiler: ("[spoiler]this[b]is empty[/spoiler]", r#"<details class="spoiler"><summary>Spoiler</summary>this<b>is empty</b></details>"#);
+        spoiler_simeon: ("[spoiler spoiler=what is this]i hate it[/spoiler]", r#"<details class="spoiler"><summary>what is this</summary>i hate it</details>"#);
         cite_escape: ("[quote=it's<mad>lad]yeah[/quote]",r#"<blockquote cite="it&#x27;s&lt;mad&gt;lad">yeah</blockquote>"#);
         h1_simple: ("[h1] so about that header [/h1]", "<h1> so about that header </h1>");
         h2_simple: (" [h2]Not as important", " <h2>Not as important</h2>");

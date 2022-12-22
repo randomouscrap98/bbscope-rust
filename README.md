@@ -170,6 +170,9 @@ is made at autolinking them (your mileage may vary)
   it should still compatible, but if you were creating custom tags at all, the entire system was
   scrapped in favor of the `ScopeInfo` and `EmitScope` combo
 - **0.1.1**: Small bugfix to enforce Sync + Send on closures (so bbcode can be used across threads)
+- **0.1.2**: Added class to "code" segments
+- **0.1.3**: Added ability to convert a bbcode parser into one that only consumes the scoped tags it had
+- **0.1.4**: Added secondary syntax I've seen around: `[tag tag=attribute]`
 
 ## Future
 

@@ -71,7 +71,7 @@ pub enum MatchType {
 }
 
 /// Definition for a block level matcher. Should always be readonly, it is just a definition. 
-/// Not necessary a scoped element, could define eating garbage, passing normal text through, etc.
+/// Not necessarily a scoped element, could define eating garbage, passing normal text through, etc.
 /// It's all up to the 'match_type'
 pub struct MatchInfo {
     /// A unique identifier for you to reference in things like [`ScopeInfo.only`]

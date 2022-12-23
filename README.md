@@ -114,7 +114,7 @@ fn rocket() -> _ {
 
 #[get("/")]
 fn index(bbcode: &State<BBCode>) -> content::RawHtml<String> {
-  content::RawHtml(String::from(bbcode.parse("Hey, it's [b]bbcode[/b]! [i]Oops, [u]forgot to close[/i] a tag")))
+  content::RawHtml(bbcode.parse("Hey, it's [b]bbcode[/b]! [i]Oops, [u]forgot to close[/i] a tag"))
 }
 ```
 

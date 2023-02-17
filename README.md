@@ -173,6 +173,8 @@ is made at autolinking them (your mileage may vary)
 - **0.1.2**: Added class to "code" segments
 - **0.1.3**: Added ability to convert a bbcode parser into one that only consumes the scoped tags it had
 - **0.1.4**: Added secondary syntax I've seen around: `[tag tag=attribute]`
+- **0.1.5**: Accidental upload ugh
+- **0.1.6**: Added small configuration for link target (no API change, only new function)
 
 ## Future
 

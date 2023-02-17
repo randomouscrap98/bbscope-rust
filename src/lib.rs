@@ -251,7 +251,7 @@ pub enum BBCodeLinkTarget {
 /// this is useful for quick and common modifications to normal tag generation.
 #[derive(Clone, Default, Debug)]
 pub struct BBCodeTagConfig {
-    link_target: BBCodeLinkTarget
+    pub link_target: BBCodeLinkTarget
 }
 
 /// The main bbcode system. You create this to parse bbcode! Inexpensive clones,

@@ -236,6 +236,24 @@ impl<'a> BBScoper<'a>
 // *     MAIN FUNCTIONALITY    *
 // ------------------------------
 
+/// The ways in which you can configure the default link 'target' behavior.
+#[derive(Clone, Debug, Default)]
+pub enum BBCodeLinkTarget {
+    /// Do not generate a 'target' attribute
+    None,
+    /// Generate a 'target="_blank" attribute
+    #[default]
+    Blank
+}
+
+/// Configuration for tag generation. Generally not necessary, as you can just
+/// generate your own tags with more ease and more configuration than this, but
+/// this is useful for quick and common modifications to normal tag generation.
+#[derive(Clone, Default, Debug)]
+pub struct BBCodeTagConfig {
+    link_target: BBCodeLinkTarget
+}
+
 /// The main bbcode system. You create this to parse bbcode! Inexpensive clones,
 /// since fields are all reference counted.
 #[derive(Clone)] //All the members implement clone
@@ -358,7 +376,7 @@ impl BBCode
         result
     }
     
-    fn attr_or_body(opener: Option<Captures>, body: &str) -> String {
+    fn attr_or_body(opener: &Option<Captures>, body: &str) -> String {
         if let Some(opener) = opener { 
             if let Some(group) = opener.name("attr") {
                 return String::from(html_escape::encode_quoted_attribute(group.as_str()));
@@ -367,7 +385,7 @@ impl BBCode
         return String::from(body);
     }
 
-    fn attr_or_nothing(opener: Option<Captures>, name: &str) -> String {
+    fn attr_or_nothing(opener: &Option<Captures>, name: &str) -> String {
         if let Some(opener) = opener {
             if let Some(group) = opener.name("attr") {
                 //Note: WE insert the space!
@@ -377,7 +395,7 @@ impl BBCode
         return String::new();
     }
 
-    fn tag_or_something(opener: Option<Captures>, tag: &str, something: Option<&str>) -> String {
+    fn tag_or_something(opener: &Option<Captures>, tag: &str, something: Option<&str>) -> String {
         if let Some(opener) = opener {
             if let Some(group) = opener.name("attr") {
                 //Note: WE insert the space!
@@ -394,9 +412,14 @@ impl BBCode
         vec![NORMALTEXTID, CONSUMETEXTID]
     }
 
+    pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> 
+    {
+        Self::basics_config(BBCodeTagConfig::default()) 
+    }
+
     /// Get a vector of ALL basic matchers! This is the function you want to call to get a vector for the bbcode
     /// generator!
-    pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> 
+    pub fn basics_config(config: BBCodeTagConfig) -> Result<Vec<MatchInfo>, regex::Error> 
     {
         //First, get the default direct replacements
         let mut matches : Vec<MatchInfo> = Vec::new(); 
@@ -416,6 +439,12 @@ impl BBCode
             match_type: MatchType::Simple(Arc::new(|_c| String::new()))
         });
 
+        let target_attr = match config.link_target {
+            BBCodeLinkTarget::Blank => "target=\"_blank\"",
+            BBCodeLinkTarget::None => ""
+        };
+        let target_attr_c1 = target_attr.clone();
+
         #[allow(unused_variables)]
         {
             Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Arc::new(|o,b,c| format!("<b>{b}</b>"))), None, None)?;
@@ -431,12 +460,12 @@ impl BBCode
             Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
                 only: Some(Self::plaintext_ids()),
                 double_closes: false, 
-                emit: Arc::new(|o,b,c| format!(r#"<a href="{}" target="_blank">{}</a>"#, Self::attr_or_body(o,b), b) )
+                emit: Arc::new(move |o,b,c| format!(r#"<a href="{}" {}>{}</a>"#, Self::attr_or_body(&o,b), target_attr, b) )
             }, None, None)?;
             Self::add_tagmatcher(&mut matches, r"img", ScopeInfo { 
                 only: Some(Self::plaintext_ids()),
                 double_closes: false, 
-                emit: Arc::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(o,b)) )
+                emit: Arc::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(&o,b)) )
             }, None, None)?;
         }
 
@@ -451,7 +480,7 @@ impl BBCode
             //characters taken from google's page https://developers.google.com/maps/url-encoding
             //NOTE: removed certain characters from autolinking because they SUCK
             regex: Regex::new(&autolink_regex)?,
-            match_type: MatchType::Simple(Arc::new(|c| format!(r#"<a href="{0}" target="_blank">{0}</a>"#, &c[0])))
+            match_type: MatchType::Simple(Arc::new(move |c| format!(r#"<a href="{0}" {1}>{0}</a>"#, &c[0], target_attr_c1)))
         });
 
         //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
@@ -465,17 +494,22 @@ impl BBCode
         Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;
         Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
+        Self::add_tagmatcher(&mut matches, "anchor", ScopeInfo::basic(
+            Arc::new(|o,b,_c| format!(r##"<a{} href="#{}">{}</a>"##, Self::attr_or_nothing(&o,"name"), Self::attr_or_body(&o,""), b) )), None, None)?;
+            //Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
+            //emit: Arc::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
         Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo::basic(
-            Arc::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(o,"cite"), b) )
+            Arc::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(&o,"cite"), b) )
         ), Some((0,1)), Some((0,1)))?;
         Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo::basic(
-            Arc::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(o,"summary", Some("Spoiler")), b) )
+            Arc::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(&o,"summary", Some("Spoiler")), b) )
         ), None, None)?;
-        Self::add_tagmatcher(&mut matches, r"anchor", ScopeInfo {
-            only: Some(Self::plaintext_ids()),
-            double_closes: false,
-            emit: Arc::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
-        }, None, None)?;
+        //Self::add_tagmatcher(&mut matches, r"anchor", ScopeInfo {
+        //    //only: Some(Self::plaintext_ids()),
+        //    only: 
+        //    double_closes: false,
+        //    emit: Arc::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
+        //}, None, None)?;
         Self::add_tagmatcher(&mut matches, r"icode", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
@@ -484,12 +518,12 @@ impl BBCode
         Self::add_tagmatcher(&mut matches, r"code", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
-            emit: Arc::new(|o,b,_c| format!(r#"<pre class="code"{}>{}</pre>"#, Self::attr_or_nothing(o, "data-code"), b) )
+            emit: Arc::new(|o,b,_c| format!(r#"<pre class="code"{}>{}</pre>"#, Self::attr_or_nothing(&o, "data-code"), b) )
         }, Some((0,1)), Some((0,1)))?;
         Self::add_tagmatcher(&mut matches, r"youtube", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
-            emit: Arc::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(o, b), b) )
+            emit: Arc::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(&o, b), b) )
         }, None, None)?;
         Ok(matches)
     }
@@ -792,6 +826,7 @@ mod tests {
         e_weirdignoreclose: ("[b]foo[/b]bar[/fake][/b][/fake]", "<b>foo</b>bar[/fake][/fake]");
         e_fancytag: ("[[i]b[/i]]", "[<i>b</i>]");
         e_escapemadness: ("&[&]<[<]>[>]", "&amp;[&amp;]&lt;[&lt;]&gt;[&gt;]");
+        e_bracket_url: ("[url=#Ports][1][/url]", r##"<a href="#Ports" target="_blank">[1]</a>"##);
     }
 
     bbtest_extras! {
@@ -805,7 +840,8 @@ mod tests {
         h2_simple: (" [h2]Not as important", " <h2>Not as important</h2>");
         h3_simple: ("[h3][h3]wHaAt-Are-u-doin[/h3]", "<h3><h3>wHaAt-Are-u-doin</h3></h3>");
         quote_newlines: ("\n[quote]\n\nthere once was\na boy\n[/quote]\n", "\n<blockquote>\nthere once was\na boy\n</blockquote>");
-        anchor_simple: ("[anchor=Look_Here]The Title[/anchor]", r#"<a name="Look_Here">The Title</a>"#);
+        anchor_simple: ("[anchor=Look_Here]The Title[/anchor]", r##"<a name="Look_Here" href="#Look_Here">The Title</a>"##);
+        anchor_inside: ("[anchor=name][h1]A title[/h1][/anchor]", r##"<a name="name" href="#name"><h1>A title</h1></a>"##);
         icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);
         code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "\n<pre class=\"code\" data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
     }

@@ -491,9 +491,10 @@ impl BBCode
     pub fn extras() -> Result<Vec<MatchInfo>, Error> 
     {
         let mut matches : Vec<MatchInfo> = Vec::new(); 
-        Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h1>{}</h1>",b))), None, None)?;
-        Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h2>{}</h2>",b))), None, None)?;
-        Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
+        //opening(before, after), closing(before, after)
+        Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h1>{}</h1>",b))), Some((0,1)), Some((1,1)))?;
+        Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h2>{}</h2>",b))), Some((0,1)), Some((1,1)))?;
+        Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), Some((0,1)), Some((1,1)))?;
         Self::add_tagmatcher(&mut matches, "anchor", ScopeInfo::basic(
             Arc::new(|o,b,_c| format!(r##"<a{} href="#{}">{}</a>"##, Self::attr_or_nothing(&o,"name"), Self::attr_or_body(&o,""), b) )), None, None)?;
             //Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;

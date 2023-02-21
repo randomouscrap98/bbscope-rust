@@ -175,6 +175,7 @@ is made at autolinking them (your mileage may vary)
 - **0.1.4**: Added secondary syntax I've seen around: `[tag tag=attribute]`
 - **0.1.5**: Accidental upload ugh
 - **0.1.6**: Added small configuration for link target (no API change, only new function)
+- **0.1.7**: Consume some newlines around headers like most other bbcode parsers do
 
 ## Future
 

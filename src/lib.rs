@@ -20,7 +20,6 @@ static NEWLINEID: &str = "newline";
 const BASICTAGS: &[&str] = &[
     "b", "i", "sup", "sub", "u", "s", "list", r"\*", "url", "img"
 ];
-#[allow(dead_code)]
 const EXTENDEDTAGS: &[&str] = &[
     "h1", "h2", "h3", "anchor", "quote", "spoiler", "icode", "code", "youtube"
 ];
@@ -120,8 +119,27 @@ impl BBScope<'_> {
             if self.id == info.id && matches!(info.match_type, MatchType::Close) {
                 return true;
             } 
-            only.contains(&info.id)
+            for &only_str in only.iter() {
+                //If the only_str starts with attr:, we only allow this inner tag if the current scope
+                //tag has an attr (attribute).
+                if only_str.starts_with("attr:") {
+                    let only_name = &only_str[5..];
+                    if only_name == info.id {
+                        if let Some(ref capture) = self.open_tag_capture {
+                            if capture.name("attr").is_some() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                else if only_str == info.id {
+                    return true;
+                }
+            }
+            //Nothing was found, you're not allowed
+            return false;
         }
+        //If there's no only field, allow everything
         else {
             true
         }
@@ -286,10 +304,9 @@ impl Default for BBCodeTagConfig {
     }
 }
 
-#[allow(dead_code)]
 impl BBCodeTagConfig {
     /// Produce a default configuration but include the extended tags
-    fn extended() -> Self {
+    pub fn extended() -> Self {
         let mut config = BBCodeTagConfig::default();
         let mut extags : Vec<String> = EXTENDEDTAGS.iter().map(|t| t.to_string()).collect();
         config.accepted_tags.append(&mut extags);
@@ -358,7 +375,7 @@ impl BBCode
 
         let mut url_only = Self::plaintext_ids();
         if config.img_in_url {
-            url_only.push("img")
+            url_only.push("attr:img")
         }
 
         let accepted_tags : Vec<&str> = config.accepted_tags.iter().map(|t| t.as_str()).collect();
@@ -847,10 +864,12 @@ mod tests {
         //NOTE: this one, it's just how I want it to work. IDK how the real bbcode handles this weirdness
         //simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">abc 123"#);
         simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
-        //New in 0.1.9: allow images inside urls (old bbcode matcher I was emulating didn't allow that, but that's stupid)
+        //New in 0.2.0: allow images inside urls (old bbcode matcher I was emulating didn't allow that, but that's stupid)
         url_with_img: ("[url=https://google.com][img]https://some.image.url/junk.png[/img][/url]", r#"<a href="https://google.com" target="_blank"><img src="https://some.image.url/junk.png"></a>"#);
         url_with_img_attr: ("[url=https://google.com][img=https://some.image.url/junk.png][/url]", r#"<a href="https://google.com" target="_blank"><img src="https://some.image.url/junk.png"></a>"#);
-        url_with_img_nourl: ("[url][img=https://some.image.url/junk.png][/url]", r#"<a target="_blank"><img src="https://some.image.url/junk.png"></a>"#);
+        //Note: because url is special and can get the href from either the inside or the attribute, if it has no attribute,
+        //it must get it from the inside. So, although the image is a proper tag, it will not be converted in this case
+        url_with_img_nourl: ("[url][img=https://some.image.url/junk.png][/url]", r#"<a href="[img=https://some.image.url/junk.png]" target="_blank">[img=https://some.image.url/junk.png]</a>"#);
         url_no_other_tags: ("[url=https://what.non][b][i][u][s][/url]", r#"<a href="https://what.non" target="_blank">[b][i][u][s]</a>"#);
         //Note: this is "undefined" behavior, and it makes sense that an ignored tag (the inner [url]) would not be linked to its immediate
         //closing tag, and so the first [/url] closes the url early. "fixing" this edge case is beyond the scope of this library, as it's 

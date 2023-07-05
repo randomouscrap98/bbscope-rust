@@ -15,7 +15,6 @@ static AUTOLINKID: &str = "autolinker";
 static CONSUMETEXTID : &str = "consumetext";
 static NORMALTEXTID: &str = "normaltext";
 static BRNEWLINEID: &str = "convertnewlinebr";
-static NEWLINEID: &str = "newline";
 
 const BASICTAGS: &[&str] = &[
     "b", "i", "sup", "sub", "u", "s", "list", r"\*", "url", "img"
@@ -450,8 +449,9 @@ impl BBCode
             matches.extend(m);
         }
 
-        //The ordering is important! If the user requested <br> output, that needs to come first, so it supercedes
-        //the regular newline consumer! But we must include the newline consumer for verbatim sections (like code)
+        //The ordering is important! If the user requested <br> output, that needs to come last, so tags can consume newlines
+        //in front of them in peace! Note that any newlines not caught by this (such as within tags that don't accept this scope)
+        //will simply be emitted, as any non-matched character is dumped verbatim to the output.
         if config.newline_to_br {
             matches.push(MatchInfo { 
                 id: BRNEWLINEID, 
@@ -459,22 +459,15 @@ impl BBCode
                 match_type: MatchType::Simple(Arc::new(|_c| String::from("<br>")))
             })
         }
-        matches.push(MatchInfo {  //This passes through newlines directly. A catch for when <br> isn't allowed
-            id: NEWLINEID, 
-            regex: Regex::new(r#"^[\n]+"#)?, 
-            match_type: MatchType::Simple(Arc::new(|c| String::from(&c[0])))
-        });
 
         //This new autolinker is taken from 12 since it works better
         let url_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*'!?,.;:]*"#;
         let end_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*']"#;
         let autolink_regex = format!("^https?://{0}{1}([(]{0}[)]({0}{1})?)?", url_chars, end_chars);
 
-        //Don't forget about autolinking! This is a crappy autolinker and it doesn't matter too much!
+        //Don't forget about autolinking! It's not the most robust autolinker but it works in many cases!
         matches.push(MatchInfo { 
             id: AUTOLINKID,
-            //characters taken from google's page https://developers.google.com/maps/url-encoding
-            //NOTE: removed certain characters from autolinking because they SUCK
             regex: Regex::new(&autolink_regex)?,
             match_type: MatchType::Simple(Arc::new(move |c| format!(r#"<a href="{0}" {1}>{0}</a>"#, &c[0], target_attr_c1)))
         });
@@ -957,6 +950,7 @@ mod tests {
         anchor_simple: ("[anchor=Look_Here]The Title[/anchor]", r##"<a name="Look_Here" href="#Look_Here">The Title</a>"##);
         anchor_inside: ("[anchor=name][h1]A title[/h1][/anchor]", r##"<a name="name" href="#name"><h1>A title</h1></a>"##);
         icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);
+        //NOTE: this also tests that code preserves newlines and doesn't emit <br>!
         code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "<br><pre class=\"code\" data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
         simple_customtag: ("[color=wow]amazing[/color]", r#"<span style="color:wow">amazing</span>"#);
         simple_customtag_withdefault: ("[color=#FF5500][b][i]ama\nzing[/color]", r#"<span style="color:#FF5500"><b><i>ama<br>zing</i></b></span>"#);

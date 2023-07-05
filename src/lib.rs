@@ -729,6 +729,24 @@ mod tests {
         }
     }
 
+    macro_rules! bbtest_nondefaults{
+        ($($name:ident: $value:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let mut config = BBCodeTagConfig::default();
+                config.link_target = BBCodeLinkTarget::None;
+                config.img_in_url = false;
+                config.newline_to_br = false;
+                config.accepted_tags = vec![String::from("b"), String::from("u"), String::from("code"), String::from("url"), String::from("img")];
+                let bbcode = BBCode::from_config(config, None).unwrap(); 
+                let (input, expected) = $value;
+                assert_eq!(bbcode.parse(input), expected);
+            }
+        )*
+        }
+    }
+
     macro_rules! bbtest_extras {
         ($($name:ident: $value:expr;)*) => {
         $(
@@ -914,6 +932,15 @@ mod tests {
         e_fancytag: ("[[i]b[/i]]", "[<i>b</i>]");
         e_escapemadness: ("&[&]<[<]>[>]", "&amp;[&amp;]&lt;[&lt;]&gt;[&gt;]");
         e_bracket_url: ("[url=#Ports][1][/url]", r##"<a href="#Ports" target="_blank">[1]</a>"##);
+    }
+
+    bbtest_nondefaults! {
+        restricted_tags: ("[s]not supported haha![/s]", "[s]not supported haha![/s]");
+        newlines_not_br: ("[b]this\n[i]\nis\n[u]silly!\n[/s]\n", "<b>this\n[i]\nis\n<u>silly!\n[/s]\n</u></b>");
+        no_target_in_url: ("[url=https://valid.com]target[/url]", "<a href=\"https://valid.com\" >target</a>");
+        //NOTE: this also tests that there's no target, and that random space in the a tag sucks
+        no_img_in_url: ("[url=https://valid.com][img=https://notvalid.net][/url]", "<a href=\"https://valid.com\" >[img=https://notvalid.net]</a>");
+        no_img_in_url_noendtag: ("[url=https://valid.com][img=https://notvalid.net][/img]", "<a href=\"https://valid.com\" >[img=https://notvalid.net][/img]</a>");
     }
 
     bbtest_extras! {

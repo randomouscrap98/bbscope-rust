@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use regex::{Regex, Captures, Error};
+use regex::{Regex, Captures, Error, Match};
 
 // Carlos Sanchez - 2022-12-05
 // - For SBS
@@ -14,6 +14,8 @@ use regex::{Regex, Captures, Error};
 static AUTOLINKID: &str = "autolinker";
 static CONSUMETEXTID : &str = "consumetext";
 static NORMALTEXTID: &str = "normaltext";
+static BRNEWLINEID: &str = "convertnewlinebr";
+static NEWLINEID: &str = "newline";
 
 /// The type for your emit closure which will take the open tag capture, body, and close tag capture and 
 /// output whatever you want. used with 
@@ -90,7 +92,7 @@ pub struct MatchInfo {
 struct BBScope<'a> {
     /// Id of the [`MatchInfo`] which produced this scope. Used for tracking, double_closes detection, etc
     id: &'static str,
-    /// The scope information from the [`MatchInfo`] which describes the nature of this current scope. Should
+    /// The scope information from the [`MatchInfo`] which describes the rules of this current scope. Should
     /// always be a reference, as it's just informational
     info: Arc<ScopeInfo>,
     /// The regex capture for the open tag. We save this for later, when we finally emit the completed scope.
@@ -103,10 +105,14 @@ struct BBScope<'a> {
 }
 
 impl BBScope<'_> {
-    /// Is the given element with id (such as bold/italic/url) allowed to exist inside this scope
-    fn is_allowed(&self, id: &str) -> bool {
+    /// Is the given element `info` (such as bold/italic/url) allowed to exist inside this scope
+    fn is_allowed(&self, info: &MatchInfo) -> bool {
         if let Some(only) = &self.info.only {
-            id == self.id || only.contains(&id)
+            //A special case: your own closing tag is always allowed of course!
+            if self.id == info.id && matches!(info.match_type, MatchType::Close) {
+                return true;
+            } 
+            only.contains(&info.id)
         }
         else {
             true
@@ -149,7 +155,7 @@ impl<'a> BBScoper<'a>
 
     /// Given the current state of our scopes, is the element with the given id (such as bold/italic/url)
     /// allowed to exist as the next element inside us right now? Basically: can the current scope accept this element
-    fn is_allowed(&self, id: &str) -> bool {
+    fn is_allowed(&self, id: &MatchInfo) -> bool {
         self.scopes.last().unwrap().is_allowed(id)
     }
 
@@ -261,7 +267,7 @@ impl Default for BBCodeTagConfig {
         Self {
             link_target: BBCodeLinkTarget::default(),
             img_in_url: true,
-            newline_to_br: false
+            newline_to_br: true
         }
     }
 }
@@ -446,6 +452,7 @@ impl BBCode
             match_type : MatchType::Simple(Arc::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
         });
 
+        //Throw away these characters
         matches.push(MatchInfo { 
             id: CONSUMETEXTID,
             regex: Regex::new(r#"^[\r]+"#)?, 
@@ -488,6 +495,23 @@ impl BBCode
             }, None, None)?;
         }
 
+        //The ordering is important! If the user requested <br> output, that needs to come first, so it supercedes
+        //the regular newline consumer! But we must include the newline consumer for verbatim sections (like code)
+        if config.newline_to_br {
+            matches.push(MatchInfo { 
+                id: BRNEWLINEID, 
+                regex: Regex::new(r#"^\n"#)?, 
+                match_type: MatchType::Simple(Arc::new(|_c| String::from("<br>")))
+            })
+        }
+        matches.push(MatchInfo {  //This passes through newlines directly. A catch for when <br> isn't allowed
+            id: NEWLINEID, 
+            regex: Regex::new(r#"^[\n]+"#)?, 
+            match_type: MatchType::Simple(Arc::new(|c| String::from(&c[0])))
+        });
+
+        //WARN: I had to put the newline matcher at the end because of tag newline consumption. But then if 
+
         //This new autolinker is taken from 12 since it works better
         let url_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*'!?,.;:]*"#;
         let end_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*']"#;
@@ -516,20 +540,12 @@ impl BBCode
         Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), Some((0,1)), Some((1,1)))?;
         Self::add_tagmatcher(&mut matches, "anchor", ScopeInfo::basic(
             Arc::new(|o,b,_c| format!(r##"<a{} href="#{}">{}</a>"##, Self::attr_or_nothing(&o,"name"), Self::attr_or_body(&o,""), b) )), None, None)?;
-            //Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), None, None)?;
-            //emit: Arc::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
         Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo::basic(
             Arc::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(&o,"cite"), b) )
         ), Some((0,1)), Some((0,1)))?;
         Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo::basic(
             Arc::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(&o,"summary", Some("Spoiler")), b) )
         ), None, None)?;
-        //Self::add_tagmatcher(&mut matches, r"anchor", ScopeInfo {
-        //    //only: Some(Self::plaintext_ids()),
-        //    only: 
-        //    double_closes: false,
-        //    emit: Arc::new(|o,b,_c| format!(r#"<a{}>{}</a>"#, Self::attr_or_nothing(o,"name"), b) )
-        //}, None, None)?;
         Self::add_tagmatcher(&mut matches, r"icode", ScopeInfo {
             only: Some(Self::plaintext_ids()),
             double_closes: false,
@@ -569,7 +585,7 @@ impl BBCode
             //these are such small state machines with nothing too crazy that I think it's fine.... maybe.
             //Especially since they all start at the start of the string
             for matchinfo in self.matchers.iter() {
-                if !scoper.is_allowed(matchinfo.id) {
+                if !scoper.is_allowed(matchinfo) {
                     continue;
                 }
                 else if matchinfo.regex.is_match(slice) {
@@ -814,6 +830,15 @@ mod tests {
         //NOTE: this one, it's just how I want it to work. IDK how the real bbcode handles this weirdness
         //simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">abc 123"#);
         simple_img_nonstd_inner: ("[img=https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png]abc 123[/img]", r#"<img src="https://old.smiflebosicswoace.com/user_uploads/avatars/t1647374379.png">"#);
+        //New in 0.1.9: allow images inside urls (old bbcode matcher I was emulating didn't allow that, but that's stupid)
+        url_with_img: ("[url=https://google.com][img]https://some.image.url/junk.png[/img][/url]", r#"<a href="https://google.com" target="_blank"><img src="https://some.image.url/junk.png"></a>"#);
+        url_with_img_attr: ("[url=https://google.com][img=https://some.image.url/junk.png][/url]", r#"<a href="https://google.com" target="_blank"><img src="https://some.image.url/junk.png"></a>"#);
+        url_with_img_nourl: ("[url][img=https://some.image.url/junk.png][/url]", r#"<a target="_blank"><img src="https://some.image.url/junk.png"></a>"#);
+        url_no_other_tags: ("[url=https://what.non][b][i][u][s][/url]", r#"<a href="https://what.non" target="_blank">[b][i][u][s]</a>"#);
+        //Note: this is "undefined" behavior, and it makes sense that an ignored tag (the inner [url]) would not be linked to its immediate
+        //closing tag, and so the first [/url] closes the url early. "fixing" this edge case is beyond the scope of this library, as it's 
+        //unsupported behavior anyway.
+        url_nested: ("[url=https://what.non][url=https://abc123.com][/url][/url]", r#"<a href="https://what.non" target="_blank">[url=https://abc123.com]</a>"#);
         //This also tests auto-closed tags, albeit a simple form
         list_basic:  ("[list][*]item 1[/*][*]item 2[/*][*]list[/*][/list]", "<ul><li>item 1</li><li>item 2</li><li>list</li></ul>");
         unclosed_basic: ("[b] this is bold [i]also italic[/b] oops close all[/i]", "<b> this is bold <i>also italic</i></b> oops close all");
@@ -859,7 +884,7 @@ mod tests {
         h1_simple: ("[h1] so about that header [/h1]", "<h1> so about that header </h1>");
         h2_simple: (" [h2]Not as important", " <h2>Not as important</h2>");
         h3_simple: ("[h3][h3]wHaAt-Are-u-doin[/h3]", "<h3><h3>wHaAt-Are-u-doin</h3></h3>");
-        quote_newlines: ("\n[quote]\n\nthere once was\na boy\n[/quote]\n", "\n<blockquote>\nthere once was\na boy\n</blockquote>");
+        quote_newlines: ("\n[quote]\n\nthere once was\na boy\n[/quote]\n", "<br><blockquote><br>there once was<br>a boy<br></blockquote>");
         anchor_simple: ("[anchor=Look_Here]The Title[/anchor]", r##"<a name="Look_Here" href="#Look_Here">The Title</a>"##);
         anchor_inside: ("[anchor=name][h1]A title[/h1][/anchor]", r##"<a name="name" href="#name"><h1>A title</h1></a>"##);
         icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);

@@ -155,9 +155,8 @@ is made at autolinking them (your mileage may vary)
 
 ## Caveats:
 
-- Output removes \r but RETAINS \n rather than replacing with \<br\>. This was how an old
-  bbcode parser I was using worked, and this was written to replace that. If there's a need,
-  I can add modes for \n vs \<br\>
+- Output removes \r and replaces \n with \<br\> (except in some tags with limited scope). If the \<br\>
+  causes problems, you can use `BBCode::basics_config(config)` and pass the appropriate config values
 - Performance was not a main concern, although you can enable additional performance 
   features with the `perf` feature (enables some regex optimizations, about a 4x improvement in my
   testing)
@@ -177,7 +176,7 @@ is made at autolinking them (your mileage may vary)
 - **0.1.6**: Added small configuration for link target (no API change, only new function)
 - **0.1.7**: Consume some newlines around headers like most other bbcode parsers do
 - **0.1.8**: Update onestop dependency
-- **0.1.9**: Fix ScopeInfo visibility, 
+- **0.2.0**: Fix ScopeInfo visibility, change some defaults (use \<br\>). 
 
 ## Future
 

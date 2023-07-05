@@ -177,6 +177,7 @@ is made at autolinking them (your mileage may vary)
 - **0.1.6**: Added small configuration for link target (no API change, only new function)
 - **0.1.7**: Consume some newlines around headers like most other bbcode parsers do
 - **0.1.8**: Update onestop dependency
+- **0.1.9**: Fix ScopeInfo visibility, 
 
 ## Future
 

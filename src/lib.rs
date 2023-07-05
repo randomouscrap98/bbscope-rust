@@ -51,7 +51,7 @@ impl Default for ScopeInfo {
 
 impl ScopeInfo {
     /// Create a basic scope info using only an emiter (a highly common case, you probably want this)
-    fn basic(emitter: EmitScope) -> Self {
+    pub fn basic(emitter: EmitScope) -> Self {
         let mut result = Self::default();
         result.emit = emitter;
         result
@@ -249,9 +249,21 @@ pub enum BBCodeLinkTarget {
 /// Configuration for tag generation. Generally not necessary, as you can just
 /// generate your own tags with more ease and more configuration than this, but
 /// this is useful for quick and common modifications to normal tag generation.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct BBCodeTagConfig {
-    pub link_target: BBCodeLinkTarget
+    pub link_target: BBCodeLinkTarget,
+    pub img_in_url: bool,
+    pub newline_to_br: bool
+}
+
+impl Default for BBCodeTagConfig {
+    fn default() -> Self {
+        Self {
+            link_target: BBCodeLinkTarget::default(),
+            img_in_url: true,
+            newline_to_br: false
+        }
+    }
 }
 
 /// The main bbcode system. You create this to parse bbcode! Inexpensive clones,
@@ -412,16 +424,17 @@ impl BBCode
         vec![NORMALTEXTID, CONSUMETEXTID]
     }
 
+    /// Get a vector of basic matchers using the default configuration!
     pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> 
     {
         Self::basics_config(BBCodeTagConfig::default()) 
     }
 
-    /// Get a vector of ALL basic matchers! This is the function you want to call to get a vector for the bbcode
-    /// generator!
+    /// Get a vector of basic matchers! You can supply the configuration (an easy way to configure the most common 
+    /// changes to basic bbcode parsing. If you need more, you may want to modify the matchers directly or construct
+    /// your own!)
     pub fn basics_config(config: BBCodeTagConfig) -> Result<Vec<MatchInfo>, regex::Error> 
     {
-        //First, get the default direct replacements
         let mut matches : Vec<MatchInfo> = Vec::new(); 
 
         //This is an optimization: any large block of characters that has no meaning in bbcode can go straight through.
@@ -445,6 +458,11 @@ impl BBCode
         };
         let target_attr_c1 = target_attr.clone();
 
+        let mut url_only = Self::plaintext_ids();
+        if config.img_in_url {
+            url_only.push("img")
+        }
+
         #[allow(unused_variables)]
         {
             Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Arc::new(|o,b,c| format!("<b>{b}</b>"))), None, None)?;
@@ -457,8 +475,9 @@ impl BBCode
             Self::add_tagmatcher(&mut matches, r"\*", ScopeInfo { 
                 only: None, double_closes: true, emit: Arc::new(|o,b,c| format!("<li>{b}</li>"))
             }, Some((1,0)), Some((1,0)))?;
+            //We want 
             Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
-                only: Some(Self::plaintext_ids()),
+                only: Some(url_only),
                 double_closes: false, 
                 emit: Arc::new(move |o,b,c| format!(r#"<a href="{}" {}>{}</a>"#, Self::attr_or_body(&o,b), target_attr, b) )
             }, None, None)?;

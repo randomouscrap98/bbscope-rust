@@ -734,7 +734,13 @@ mod tests {
         $(
             #[test]
             fn $name() {
-                let bbcode = BBCode::from_config(BBCodeTagConfig::extended(), None).unwrap();
+                let mut matchers = Vec::<MatchInfo>::new(); // A list of NEW matchers we'll pass to from_config
+                let color_emitter : EmitScope = Arc::new(|open_capture,body,_c| {
+                    let color = open_capture.unwrap().name("attr").unwrap().as_str();
+                    format!(r#"<span style="color:{}">{}</span>"#, color, body)
+                });
+                BBCode::add_tagmatcher(&mut matchers, "color", ScopeInfo::basic(color_emitter), None, None).unwrap();
+                let bbcode = BBCode::from_config(BBCodeTagConfig::extended(), Some(matchers)).unwrap();
                 let (input, expected) = $value;
                 assert_eq!(bbcode.parse(input), expected);
             }
@@ -925,6 +931,8 @@ mod tests {
         anchor_inside: ("[anchor=name][h1]A title[/h1][/anchor]", r##"<a name="name" href="#name"><h1>A title</h1></a>"##);
         icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);
         code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "<br><pre class=\"code\" data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
+        simple_customtag: ("[color=wow]amazing[/color]", r#"<span style="color:wow">amazing</span>"#);
+        simple_customtag_withdefault: ("[color=#FF5500][b][i]ama\nzing[/color]", r#"<span style="color:#FF5500"><b><i>ama<br>zing</i></b></span>"#);
     }
 
     bbtest_consumer! {

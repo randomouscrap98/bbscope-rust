@@ -17,11 +17,12 @@ any number of ways, this library will produce:
 Another example:
 
 ```
-And so [s] I'm just like [s] opening tons of [sup] tags? Maybe I'll close this [/s] one
+And so [s] I'm just like [s] opening tons of [sup] tags?
+Maybe I'll close this [/s] one
 ```
 
 ```html
-And so <s> I&#x27;m just like <s> opening tons of <sup> tags? Maybe I&#x27;ll close this </sup></s> one</s>
+And so <s> I&#x27;m just like <s> opening tons of <sup> tags?<br>Maybe I&#x27;ll close this </sup></s> one</s>
 ```
 
 All unclosed tags are automatically closed in the correct order, including any that were
@@ -39,54 +40,52 @@ throw away, like \r).
 ```rust
 let bbcode = BBCode::default().unwrap(); // Or catch error
 let html = bbcode.parse("[url]https://github.com[/url]")
-// Make sure to reuse the BBCode you created! Creating is expensive!
+// Make sure to reuse the BBCode you created! Creating is expensive, but cloning is cheap!
+let bbcode2 = bbcode.clone();
 ```
 
 Or, if you want the extended set (see next section for list):
 
 ```rust
-// These are just vectors, which means you can construct your own!
-let mut matchers = BBCode::basics().unwrap();
-let mut extras = BBCode::extras().unwrap();
-matchers.append(&mut extras);
-
-//Note: this step could be expensive, as it has to compile a couple dozen regexes
-let bbcode = BBCode::from_matchers(matchers);
-
-// Cheap copy: they share the same pre-compiled regex, share it around!
-let bbcode2 = bbcode.clone();
+// Instead of requesting the default BBCode parser, you can pass in a configuration
+// for the most common alterations, along with a vector of extra tag parsers (see later)
+let mut bbcode = BBCode::from_config(BBCodeTagConfig::extended(), None).unwrap();
+let html = bbcode.parse("[code]wow\nthis is code![/code]");
 ```
 
-Or, if you want to add your own tag:
+Or, if you want to add your own tags:
 
 ```rust
-let mut matchers = BBCode::basics().unwrap();
+let mut config = BBCodeTagConfig::default(); // Default does not include extended tags fyi
+let mut matchers = Vec<MatchInfo>::new(); // A list of NEW matchers we'll pass to from_config
 
-// How your tag gets turned into HTML; you are given the open tag regex capture, the 
-// pre-parsed pre-escaped body, and the closing tag regex capture (if the user provided it)
-let emitter = |open_capture,body,_c| {
+// You define how your tag gets turned into HTML using a closure; you are provided the open tag 
+// regex capture, the pre-parsed pre-escaped body, and the closing tag regex capture (if the user provided it).
+// "EmitScope" is just a fancy alias so you don't have to fuss with the complicated types
+let color_emitter : EmitScope = Arc::new(|open_capture,body,_c| {
   //NOTE: in production code, don't `unwrap` the named capture group, it might not exist!
   let color = open_capture.unwrap().name("attr").unwrap().as_str();
   format!(r#"<span style="color:{}">{}</span>"#, color, body)
-};
+});
 
-BBCode::add_tagmatcher(&mut matchers, "color", ScopeInfo::basic(Arc::new(emitter)), None, None)?;
+BBCode::add_tagmatcher(&mut matchers, "color", ScopeInfo::basic(color_emitter), None, None)?;
+//Repeat the emitter / add_tagmatcher above for each tag you want to add
 
-let bbcode = BBCode::from_matchers(matchers);
+let bbcode = BBCode::from_config(config, Some(matchers));
 ```
 
-The `BBCode::add_tagmatcher` method constructs a bbcode tag parser for you, but you can technically
-construct your own matcher manually which can match almost anything. For now, if you're just trying to add
-basic bbcode tags, you'll see in the above:
+The `BBCode::add_tagmatcher` method constructs a bbcode tag parser for you using less code than
+normally required, but you can technically construct your own matcher manually which can match 
+almost anything. For now, if you're just trying to add basic bbcode tags, you'll see in the above:
 - First parameter is the list to append the matcher to (it adds multiple items).
 - Second is the name of the bbcode tag, all lowercase (so this would match [color])
 - Third is a special "ScopeInfo" struct, but we're calling the "basic" constructor and simply
   passing a boxed closure rather than configuring the entire ScopeInfo.
-- That boxed closure is a so-called `EmitScope`, which gives you the regex capture for the open
-  tag, the pre-html-escaped, pre-parsed body, and the closing tag regex capture, which you can
-  use to output (emit) the constructed html. Note that, although the opening tag is nearly always
-  given, the closing tag is OFTEN not given, especially if the user did not close their tags. Do
-  not rely on the last parameter (`_c` in the example) existing
+- That boxed closure is a so-called `EmitScope`, which is that closure you wrote that gives you 
+  the regex capture for the open tag, the pre-html-escaped pre-parsed body, and the closing tag 
+  regex capture, which you can use to output (emit) the constructed html. Note that, although the 
+  opening tag is nearly always given, the closing tag is OFTEN not given, especially if the user 
+  did not close their tags. Do not rely on the last parameter (`_c` in the example) existing
 - Note that the opening tag capture has a named group called `attr`, which is the value of the
   attribute given in the bbcode tag. For instance, if you had `[url=http://whatever]abc[/url]`, 
   the match `attr` would house the string `http://whatever` (NOT pre-escaped, be careful!)
@@ -106,7 +105,7 @@ use bbscope::BBCode;
 
 #[launch]
 fn rocket() -> _ {
-    let bbcode = BBCode::default();
+    let bbcode = BBCode::default().unwrap();
     rocket::build()
       .mount("/", routes![ index ])
       .manage(bbcode) //Add as state, you want to reuse the bbcode object!!
@@ -156,7 +155,8 @@ is made at autolinking them (your mileage may vary)
 ## Caveats:
 
 - Output removes \r and replaces \n with \<br\> (except in some tags with limited scope). If the \<br\>
-  causes problems, you can use `BBCode::basics_config(config)` and pass the appropriate config values
+  causes problems, you can use `BBCode::from_config(config, None)` and pass in a config with `newline_to_br` set
+  to false
 - Performance was not a main concern, although you can enable additional performance 
   features with the `perf` feature (enables some regex optimizations, about a 4x improvement in my
   testing)
@@ -176,10 +176,5 @@ is made at autolinking them (your mileage may vary)
 - **0.1.6**: Added small configuration for link target (no API change, only new function)
 - **0.1.7**: Consume some newlines around headers like most other bbcode parsers do
 - **0.1.8**: Update onestop dependency
-- **0.2.0**: Fix ScopeInfo visibility, change some defaults (use \<br\>). 
-
-## Future
-
-I mostly published this for my own projects, which have specific requirements, but if for 
-some reason this gets picked up and used and there are gaps or bugs or other required
-features, I'd be willing to work on it! I just don't see that happening lol
+- **0.2.0**: Fix ScopeInfo visibility, change some defaults (\<br\> instead of newline), changed API 
+  for parser setup

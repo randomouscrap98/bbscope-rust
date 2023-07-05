@@ -268,7 +268,8 @@ pub struct BBCodeTagConfig {
     pub link_target: BBCodeLinkTarget,
     pub img_in_url: bool,
     pub newline_to_br: bool,
-    pub accepted_tags: Vec<String>
+    pub accepted_tags: Vec<String>,
+    //pub finalize_matchers: Option<Vec<MatchInfo>>
 }
 
 impl Default for BBCodeTagConfig {
@@ -279,7 +280,8 @@ impl Default for BBCodeTagConfig {
             link_target: BBCodeLinkTarget::default(),
             img_in_url: true,
             newline_to_br: true,
-            accepted_tags: BASICTAGS.iter().map(|t| t.to_string()).collect()
+            accepted_tags: BASICTAGS.iter().map(|t| t.to_string()).collect(),
+            //finalize_matchers: None
         }
     }
 }
@@ -310,7 +312,7 @@ impl BBCode
 {
     /// Get a default bbcode parser. Should hopefully have reasonable defaults!
     pub fn default() -> Result<Self, Error> {
-        Ok(Self::from_config(BBCodeTagConfig::default())?)
+        Ok(Self::from_config(BBCodeTagConfig::default(), None)?)
     }
 
     /// Create a BBCode parser from the given list of matchers. If you're building a fully custom set of tags, 
@@ -325,8 +327,10 @@ impl BBCode
 
     /// Create a BBCode parser from a config, using standard tags (plus any extras specified in the config). If you
     /// want a tweaked BBCode parser but based off reasonable defaults, use this. `BBCode::default()` is the same
-    /// as calling this with `BBCodeTagConfig::default()`
-    pub fn from_config(config: BBCodeTagConfig) -> Result<Self, Error>
+    /// as calling this with `BBCodeTagConfig::default()`. You can also optionally pass in more tags you wish to support
+    /// (this is done because the order of tag matchers is important, and the "standard" configuration requires some internal
+    /// matchers to come after yours)
+    pub fn from_config(config: BBCodeTagConfig, additional_matchers: Option<Vec<MatchInfo>>) -> Result<Self, Error>
     {
         let mut matches : Vec<MatchInfo> = Vec::new(); 
 
@@ -423,8 +427,11 @@ impl BBCode
         }
 
         //WARN: I had to put the newline matcher at the end because of tag newline consumption! This makes configuration
-        //and adding new tags a lot more complicated! Unfortunate!
-
+        //and adding new tags a lot more complicated (meaning the user has to pass their matchers in when configuring
+        //the parser and they can't be changed)! Unfortunate!
+        if let Some(m) = additional_matchers {
+            matches.extend(m);
+        }
 
         //The ordering is important! If the user requested <br> output, that needs to come first, so it supercedes
         //the regular newline consumer! But we must include the newline consumer for verbatim sections (like code)
@@ -710,7 +717,7 @@ mod tests {
         $(
             #[test]
             fn $name() {
-                let bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
+                let bbcode = BBCode::from_config(BBCodeTagConfig::extended(), None).unwrap();
                 let (input, expected) = $value;
                 assert_eq!(bbcode.parse(input), expected);
             }
@@ -723,7 +730,7 @@ mod tests {
         $(
             #[test]
             fn $name() {
-                let mut bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
+                let mut bbcode = BBCode::from_config(BBCodeTagConfig::extended(), None).unwrap();
                 bbcode.to_consumer();
                 let (input, expected) = $value;
                 assert_eq!(bbcode.parse(input), expected);
@@ -745,7 +752,7 @@ mod tests {
     {
         use pretty_assertions::{assert_eq};
 
-        let bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
+        let bbcode = BBCode::from_config(BBCodeTagConfig::extended(), None).unwrap();
 
         let testdir = "bigtests";
         let entries = std::fs::read_dir(testdir).unwrap();
@@ -781,7 +788,7 @@ mod tests {
     #[cfg(feature = "bigtest")]
     #[test] //Not really a unit test but whatever
     fn benchmark_10000() {
-        let bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
+        let bbcode = BBCode::from_config(BBCodeTagConfig::extended(), None).unwrap();
         let parselem = vec![
             ("it's a %CRAZY% <world> 💙=\"yeah\" 👨‍👨‍👧‍👦>>done", 
              "it&#x27;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"),

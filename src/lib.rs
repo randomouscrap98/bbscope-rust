@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use regex::{Regex, Captures, Error, Match};
+use regex::{Regex, Captures, Error};
 
 // Carlos Sanchez - 2022-12-05
 // - For SBS
@@ -16,6 +16,14 @@ static CONSUMETEXTID : &str = "consumetext";
 static NORMALTEXTID: &str = "normaltext";
 static BRNEWLINEID: &str = "convertnewlinebr";
 static NEWLINEID: &str = "newline";
+
+const BASICTAGS: &[&str] = &[
+    "b", "i", "sup", "sub", "u", "s", "list", r"\*", "url", "img"
+];
+#[allow(dead_code)]
+const EXTENDEDTAGS: &[&str] = &[
+    "h1", "h2", "h3", "anchor", "quote", "spoiler", "icode", "code", "youtube"
+];
 
 /// The type for your emit closure which will take the open tag capture, body, and close tag capture and 
 /// output whatever you want. used with 
@@ -259,16 +267,31 @@ pub enum BBCodeLinkTarget {
 pub struct BBCodeTagConfig {
     pub link_target: BBCodeLinkTarget,
     pub img_in_url: bool,
-    pub newline_to_br: bool
+    pub newline_to_br: bool,
+    pub accepted_tags: Vec<String>
 }
 
 impl Default for BBCodeTagConfig {
+    /// Produce a default configuration, which includes the basic set of tags and 
+    /// (hopefully) expected defaults
     fn default() -> Self {
         Self {
             link_target: BBCodeLinkTarget::default(),
             img_in_url: true,
-            newline_to_br: true
+            newline_to_br: true,
+            accepted_tags: BASICTAGS.iter().map(|t| t.to_string()).collect()
         }
+    }
+}
+
+#[allow(dead_code)]
+impl BBCodeTagConfig {
+    /// Produce a default configuration but include the extended tags
+    fn extended() -> Self {
+        let mut config = BBCodeTagConfig::default();
+        let mut extags : Vec<String> = EXTENDEDTAGS.iter().map(|t| t.to_string()).collect();
+        config.accepted_tags.append(&mut extags);
+        config
     }
 }
 
@@ -287,17 +310,152 @@ impl BBCode
 {
     /// Get a default bbcode parser. Should hopefully have reasonable defaults!
     pub fn default() -> Result<Self, Error> {
-        Ok(Self::from_matchers(Self::basics()?))
+        Ok(Self::from_config(BBCodeTagConfig::default())?)
     }
 
-    /// Create a BBCode parser from the given list of matchers. If you're building a custom set of tags, 
-    /// or merging [`BBCode::basic()`] with [`BBCode::extras()`] (and maybe more), use this endpoint
+    /// Create a BBCode parser from the given list of matchers. If you're building a fully custom set of tags, 
+    /// use this endpoint
     pub fn from_matchers(matchers: Vec<MatchInfo>) -> Self {
         Self {
             matchers: Arc::new(matchers),
             #[cfg(feature = "profiling")]
             profiler: onestop::OneList::<onestop::OneDuration>::new()
         }
+    }
+
+    /// Create a BBCode parser from a config, using standard tags (plus any extras specified in the config). If you
+    /// want a tweaked BBCode parser but based off reasonable defaults, use this. `BBCode::default()` is the same
+    /// as calling this with `BBCodeTagConfig::default()`
+    pub fn from_config(config: BBCodeTagConfig) -> Result<Self, Error>
+    {
+        let mut matches : Vec<MatchInfo> = Vec::new(); 
+
+        //This is an optimization: any large block of characters that has no meaning in bbcode can go straight through.
+        matches.push(MatchInfo {
+            id: NORMALTEXTID,
+            //We use h to catch ourselves on https. this unfortunately breaks up large sections of text into much
+            //smaller ones, but it should be ok... I don't know. My parser is stupid lol
+            regex: Regex::new(r#"^[^\[\n\rh]+"#)?, 
+            match_type : MatchType::Simple(Arc::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
+        });
+
+        //Throw away these characters
+        matches.push(MatchInfo { 
+            id: CONSUMETEXTID,
+            regex: Regex::new(r#"^[\r]+"#)?, 
+            match_type: MatchType::Simple(Arc::new(|_c| String::new()))
+        });
+
+        let target_attr = match config.link_target {
+            BBCodeLinkTarget::Blank => "target=\"_blank\"",
+            BBCodeLinkTarget::None => ""
+        };
+        let target_attr_c1 = target_attr.clone();
+
+        let mut url_only = Self::plaintext_ids();
+        if config.img_in_url {
+            url_only.push("img")
+        }
+
+        let accepted_tags : Vec<&str> = config.accepted_tags.iter().map(|t| t.as_str()).collect();
+
+        macro_rules! addmatch {
+            ($name:literal, $value:expr) => {
+                addmatch!($name, $value, None, None)
+            };
+            ($name:literal, $value:expr, $open:expr, $close:expr) => {
+                if accepted_tags.contains(&$name) {
+                    Self::add_tagmatcher(&mut matches, $name, $value, $open, $close)?
+                }
+            }
+        }
+
+        #[allow(unused_variables)]
+        {
+            //Basic
+            addmatch!("b", ScopeInfo::basic(Arc::new(|o,b,c| format!("<b>{b}</b>"))));
+            addmatch!("i", ScopeInfo::basic(Arc::new(|o,b,c| format!("<i>{b}</i>"))));
+            addmatch!("sup", ScopeInfo::basic(Arc::new(|o,b,c| format!("<sup>{b}</sup>"))));
+            addmatch!("sub", ScopeInfo::basic(Arc::new(|o,b,c| format!("<sub>{b}</sub>"))));
+            addmatch!("u", ScopeInfo::basic(Arc::new(|o,b,c| format!("<u>{b}</u>"))));
+            addmatch!("s", ScopeInfo::basic(Arc::new(|o,b,c| format!("<s>{b}</s>"))));
+            addmatch!("list", ScopeInfo::basic(Arc::new(|o,b,c| format!("<ul>{b}</ul>"))), Some((0,1)), Some((0,1)));
+            //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
+            addmatch!(r"\*", ScopeInfo { 
+                only: None, double_closes: true, emit: Arc::new(|o,b,c| format!("<li>{b}</li>"))
+            }, Some((1,0)), Some((1,0)));
+            addmatch!(r"url", ScopeInfo { 
+                only: Some(url_only),
+                double_closes: false, 
+                emit: Arc::new(move |o,b,c| format!(r#"<a href="{}" {}>{}</a>"#, Self::attr_or_body(&o,b), target_attr, b) )
+            });
+            addmatch!(r"img", ScopeInfo { 
+                only: Some(Self::plaintext_ids()),
+                double_closes: false, 
+                emit: Arc::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(&o,b)) )
+            });
+
+            //Extras
+            addmatch!("h1", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h1>{}</h1>",b))), Some((0,1)), Some((1,1)));
+            addmatch!("h2", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h2>{}</h2>",b))), Some((0,1)), Some((1,1)));
+            addmatch!("h3", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), Some((0,1)), Some((1,1)));
+            addmatch!("anchor", ScopeInfo::basic(
+                Arc::new(|o,b,_c| format!(r##"<a{} href="#{}">{}</a>"##, Self::attr_or_nothing(&o,"name"), Self::attr_or_body(&o,""), b))));
+            addmatch!("quote", ScopeInfo::basic(
+                Arc::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(&o,"cite"), b))), Some((0,1)), Some((0,1)));
+            addmatch!("spoiler", ScopeInfo::basic(
+                Arc::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(&o,"summary", Some("Spoiler")), b))));
+            addmatch!("icode", ScopeInfo {
+                only: Some(Self::plaintext_ids()),
+                double_closes: false,
+                emit: Arc::new(|_o,b,_c| format!(r#"<span class="icode">{b}</span>"#))
+            });
+            addmatch!("code", ScopeInfo {
+                only: Some(Self::plaintext_ids()),
+                double_closes: false,
+                emit: Arc::new(|o,b,_c| format!(r#"<pre class="code"{}>{}</pre>"#, Self::attr_or_nothing(&o, "data-code"), b) )
+            }, Some((0,1)), Some((0,1)));
+            addmatch!("youtube", ScopeInfo {
+                only: Some(Self::plaintext_ids()),
+                double_closes: false,
+                emit: Arc::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(&o, b), b) )
+            });
+        }
+
+        //WARN: I had to put the newline matcher at the end because of tag newline consumption! This makes configuration
+        //and adding new tags a lot more complicated! Unfortunate!
+
+
+        //The ordering is important! If the user requested <br> output, that needs to come first, so it supercedes
+        //the regular newline consumer! But we must include the newline consumer for verbatim sections (like code)
+        if config.newline_to_br {
+            matches.push(MatchInfo { 
+                id: BRNEWLINEID, 
+                regex: Regex::new(r#"^\n"#)?, 
+                match_type: MatchType::Simple(Arc::new(|_c| String::from("<br>")))
+            })
+        }
+        matches.push(MatchInfo {  //This passes through newlines directly. A catch for when <br> isn't allowed
+            id: NEWLINEID, 
+            regex: Regex::new(r#"^[\n]+"#)?, 
+            match_type: MatchType::Simple(Arc::new(|c| String::from(&c[0])))
+        });
+
+        //This new autolinker is taken from 12 since it works better
+        let url_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*'!?,.;:]*"#;
+        let end_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*']"#;
+        let autolink_regex = format!("^https?://{0}{1}([(]{0}[)]({0}{1})?)?", url_chars, end_chars);
+
+        //Don't forget about autolinking! This is a crappy autolinker and it doesn't matter too much!
+        matches.push(MatchInfo { 
+            id: AUTOLINKID,
+            //characters taken from google's page https://developers.google.com/maps/url-encoding
+            //NOTE: removed certain characters from autolinking because they SUCK
+            regex: Regex::new(&autolink_regex)?,
+            match_type: MatchType::Simple(Arc::new(move |c| format!(r#"<a href="{0}" {1}>{0}</a>"#, &c[0], target_attr_c1)))
+        });
+
+        Ok(Self::from_matchers(matches))
     }
 
     /// Convert the current bbcode instance to one which consumes all tags it used to parse. The raw text
@@ -430,140 +588,6 @@ impl BBCode
         vec![NORMALTEXTID, CONSUMETEXTID]
     }
 
-    /// Get a vector of basic matchers using the default configuration!
-    pub fn basics() -> Result<Vec<MatchInfo>, regex::Error> 
-    {
-        Self::basics_config(BBCodeTagConfig::default()) 
-    }
-
-    /// Get a vector of basic matchers! You can supply the configuration (an easy way to configure the most common 
-    /// changes to basic bbcode parsing. If you need more, you may want to modify the matchers directly or construct
-    /// your own!)
-    pub fn basics_config(config: BBCodeTagConfig) -> Result<Vec<MatchInfo>, regex::Error> 
-    {
-        let mut matches : Vec<MatchInfo> = Vec::new(); 
-
-        //This is an optimization: any large block of characters that has no meaning in bbcode can go straight through.
-        matches.push(MatchInfo {
-            id: NORMALTEXTID,
-            //We use h to catch ourselves on https. this unfortunately breaks up large sections of text into much
-            //smaller ones, but it should be ok... I don't know. My parser is stupid lol
-            regex: Regex::new(r#"^[^\[\n\rh]+"#)?, 
-            match_type : MatchType::Simple(Arc::new(|c| String::from(html_escape::encode_quoted_attribute(&c[0]))))
-        });
-
-        //Throw away these characters
-        matches.push(MatchInfo { 
-            id: CONSUMETEXTID,
-            regex: Regex::new(r#"^[\r]+"#)?, 
-            match_type: MatchType::Simple(Arc::new(|_c| String::new()))
-        });
-
-        let target_attr = match config.link_target {
-            BBCodeLinkTarget::Blank => "target=\"_blank\"",
-            BBCodeLinkTarget::None => ""
-        };
-        let target_attr_c1 = target_attr.clone();
-
-        let mut url_only = Self::plaintext_ids();
-        if config.img_in_url {
-            url_only.push("img")
-        }
-
-        #[allow(unused_variables)]
-        {
-            Self::add_tagmatcher(&mut matches, "b", ScopeInfo::basic(Arc::new(|o,b,c| format!("<b>{b}</b>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "i", ScopeInfo::basic(Arc::new(|o,b,c| format!("<i>{b}</i>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "sup", ScopeInfo::basic(Arc::new(|o,b,c| format!("<sup>{b}</sup>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "sub", ScopeInfo::basic(Arc::new(|o,b,c| format!("<sub>{b}</sub>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "u", ScopeInfo::basic(Arc::new(|o,b,c| format!("<u>{b}</u>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "s", ScopeInfo::basic(Arc::new(|o,b,c| format!("<s>{b}</s>"))), None, None)?;
-            Self::add_tagmatcher(&mut matches, "list", ScopeInfo::basic(Arc::new(|o,b,c| format!("<ul>{b}</ul>"))), Some((0,1)), Some((0,1)))?;
-            Self::add_tagmatcher(&mut matches, r"\*", ScopeInfo { 
-                only: None, double_closes: true, emit: Arc::new(|o,b,c| format!("<li>{b}</li>"))
-            }, Some((1,0)), Some((1,0)))?;
-            //We want 
-            Self::add_tagmatcher(&mut matches, r"url", ScopeInfo { 
-                only: Some(url_only),
-                double_closes: false, 
-                emit: Arc::new(move |o,b,c| format!(r#"<a href="{}" {}>{}</a>"#, Self::attr_or_body(&o,b), target_attr, b) )
-            }, None, None)?;
-            Self::add_tagmatcher(&mut matches, r"img", ScopeInfo { 
-                only: Some(Self::plaintext_ids()),
-                double_closes: false, 
-                emit: Arc::new(|o,b,c| format!(r#"<img src="{}">"#, Self::attr_or_body(&o,b)) )
-            }, None, None)?;
-        }
-
-        //The ordering is important! If the user requested <br> output, that needs to come first, so it supercedes
-        //the regular newline consumer! But we must include the newline consumer for verbatim sections (like code)
-        if config.newline_to_br {
-            matches.push(MatchInfo { 
-                id: BRNEWLINEID, 
-                regex: Regex::new(r#"^\n"#)?, 
-                match_type: MatchType::Simple(Arc::new(|_c| String::from("<br>")))
-            })
-        }
-        matches.push(MatchInfo {  //This passes through newlines directly. A catch for when <br> isn't allowed
-            id: NEWLINEID, 
-            regex: Regex::new(r#"^[\n]+"#)?, 
-            match_type: MatchType::Simple(Arc::new(|c| String::from(&c[0])))
-        });
-
-        //WARN: I had to put the newline matcher at the end because of tag newline consumption. But then if 
-
-        //This new autolinker is taken from 12 since it works better
-        let url_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*'!?,.;:]*"#;
-        let end_chars = r#"[-a-zA-Z0-9_/%&=#+~@$*']"#;
-        let autolink_regex = format!("^https?://{0}{1}([(]{0}[)]({0}{1})?)?", url_chars, end_chars);
-
-        //Don't forget about autolinking! This is a crappy autolinker and it doesn't matter too much!
-        matches.push(MatchInfo { 
-            id: AUTOLINKID,
-            //characters taken from google's page https://developers.google.com/maps/url-encoding
-            //NOTE: removed certain characters from autolinking because they SUCK
-            regex: Regex::new(&autolink_regex)?,
-            match_type: MatchType::Simple(Arc::new(move |c| format!(r#"<a href="{0}" {1}>{0}</a>"#, &c[0], target_attr_c1)))
-        });
-
-        //There's a [list=1] thing, wonder how to do that. It's nonstandard, our list format is entirely nonstandard
-        Ok(matches)
-    }
-
-    /// Some fancy extra bbcode. Does not include basics! These are nonstandard, you don't have to use them!
-    pub fn extras() -> Result<Vec<MatchInfo>, Error> 
-    {
-        let mut matches : Vec<MatchInfo> = Vec::new(); 
-        //opening(before, after), closing(before, after)
-        Self::add_tagmatcher(&mut matches, "h1", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h1>{}</h1>",b))), Some((0,1)), Some((1,1)))?;
-        Self::add_tagmatcher(&mut matches, "h2", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h2>{}</h2>",b))), Some((0,1)), Some((1,1)))?;
-        Self::add_tagmatcher(&mut matches, "h3", ScopeInfo::basic(Arc::new(|_o,b,_c| format!("<h3>{}</h3>",b))), Some((0,1)), Some((1,1)))?;
-        Self::add_tagmatcher(&mut matches, "anchor", ScopeInfo::basic(
-            Arc::new(|o,b,_c| format!(r##"<a{} href="#{}">{}</a>"##, Self::attr_or_nothing(&o,"name"), Self::attr_or_body(&o,""), b) )), None, None)?;
-        Self::add_tagmatcher(&mut matches, r"quote", ScopeInfo::basic(
-            Arc::new(|o,b,_c| format!(r#"<blockquote{}>{}</blockquote>"#, Self::attr_or_nothing(&o,"cite"), b) )
-        ), Some((0,1)), Some((0,1)))?;
-        Self::add_tagmatcher(&mut matches, r"spoiler", ScopeInfo::basic(
-            Arc::new(|o,b,_c| format!(r#"<details class="spoiler">{}{}</details>"#, Self::tag_or_something(&o,"summary", Some("Spoiler")), b) )
-        ), None, None)?;
-        Self::add_tagmatcher(&mut matches, r"icode", ScopeInfo {
-            only: Some(Self::plaintext_ids()),
-            double_closes: false,
-            emit: Arc::new(|_o,b,_c| format!(r#"<span class="icode">{b}</span>"#) )
-        }, None, None)?;
-        Self::add_tagmatcher(&mut matches, r"code", ScopeInfo {
-            only: Some(Self::plaintext_ids()),
-            double_closes: false,
-            emit: Arc::new(|o,b,_c| format!(r#"<pre class="code"{}>{}</pre>"#, Self::attr_or_nothing(&o, "data-code"), b) )
-        }, Some((0,1)), Some((0,1)))?;
-        Self::add_tagmatcher(&mut matches, r"youtube", ScopeInfo {
-            only: Some(Self::plaintext_ids()),
-            double_closes: false,
-            emit: Arc::new(|o,b,_c| format!(r#"<a href={} target="_blank" data-youtube>{}</a>"#, Self::attr_or_body(&o, b), b) )
-        }, None, None)?;
-        Ok(matches)
-    }
-
     /// Main function! You call this to parse your raw bbcode! It also escapes html stuff so it can
     /// be used raw!  Current version keeps newlines as-is and it's expected you use pre-wrap, later
     /// there may be modes for more standard implementations
@@ -673,7 +697,7 @@ mod tests {
         $(
             #[test]
             fn $name() {
-                let bbcode = BBCode::from_matchers(BBCode::basics().unwrap());
+                let bbcode = BBCode::default().unwrap(); //BBCode::from_matchers(BBCode::basics().unwrap());
                 let (input, expected) = $value;
                 assert_eq!(bbcode.parse(input), expected);
             }
@@ -686,10 +710,7 @@ mod tests {
         $(
             #[test]
             fn $name() {
-                let mut matchers = BBCode::basics().unwrap();
-                let mut extras = BBCode::extras().unwrap();
-                matchers.append(&mut extras);
-                let bbcode = BBCode::from_matchers(matchers);
+                let bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
                 let (input, expected) = $value;
                 assert_eq!(bbcode.parse(input), expected);
             }
@@ -702,10 +723,7 @@ mod tests {
         $(
             #[test]
             fn $name() {
-                let mut matchers = BBCode::basics().unwrap();
-                let mut extras = BBCode::extras().unwrap();
-                matchers.append(&mut extras);
-                let mut bbcode = BBCode::from_matchers(matchers);
+                let mut bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
                 bbcode.to_consumer();
                 let (input, expected) = $value;
                 assert_eq!(bbcode.parse(input), expected);
@@ -717,7 +735,7 @@ mod tests {
     #[test]
     fn build_init() {
         //This shouldn't fail?
-        let _bbcode = BBCode::from_matchers(BBCode::basics().unwrap());
+        let _bbcode = BBCode::default().unwrap();
     }
 
     //This isn't really a unit test but whatever
@@ -727,10 +745,7 @@ mod tests {
     {
         use pretty_assertions::{assert_eq};
 
-        let mut matchers = BBCode::basics().unwrap();
-        let mut extras = BBCode::extras().unwrap();
-        matchers.append(&mut extras);
-        let bbcode = BBCode::from_matchers(matchers);
+        let bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
 
         let testdir = "bigtests";
         let entries = std::fs::read_dir(testdir).unwrap();
@@ -766,10 +781,7 @@ mod tests {
     #[cfg(feature = "bigtest")]
     #[test] //Not really a unit test but whatever
     fn benchmark_10000() {
-        let mut matchers = BBCode::basics().unwrap();
-        let mut extras = BBCode::extras().unwrap();
-        matchers.append(&mut extras);
-        let bbcode = BBCode::from_matchers(matchers);
+        let bbcode = BBCode::from_config(BBCodeTagConfig::extended()).unwrap();
         let parselem = vec![
             ("it's a %CRAZY% <world> 💙=\"yeah\" 👨‍👨‍👧‍👦>>done", 
              "it&#x27;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"),
@@ -802,9 +814,7 @@ mod tests {
         quote_single: ("h'ello", "h&#x27;ello");
         doublequote_single: ("h\"ello", "h&quot;ello");
         return_byebye: ("h\rello", "hello");
-        //Because inserting tags without knowing the scope is bad (in our system for now), don't generate
-        //<br>, just figure the whitespace is pre-wrap or something
-        newline_br: ("h\nello", "h\nello");
+        newline_br: ("h\nello", "h<br>ello");
         complex_escape: (
             "it's a %CRAZY% <world> 💙=\"yeah\" 👨‍👨‍👧‍👦>>done", 
             "it&#x27;s a %CRAZY% &lt;world&gt; 💙=&quot;yeah&quot; 👨‍👨‍👧‍👦&gt;&gt;done"
@@ -849,14 +859,14 @@ mod tests {
 
         newline_list1: ("[list]\n[*]item", "<ul><li>item</li></ul>");
         newline_list2: ("[list]\r\n[*]item", "<ul><li>item</li></ul>");
-        newline_listmega: ("\n[list]\r\n[*]item\r\n[*]item2 yeah[\r\n\r\n[*]three", "\n<ul><li>item</li><li>item2 yeah[\n</li><li>three</li></ul>");
+        newline_listmega: ("\n[list]\r\n[*]item\r\n[*]item2 yeah[\r\n\r\n[*]three", "<br><ul><li>item</li><li>item2 yeah[<br></li><li>three</li></ul>");
         //Bold, italic, etc should not remove newlines anywhere
-        newline_bold: ("\n[b]\nhellow\n[/b]\n", "\n<b>\nhellow\n</b>\n");
-        newline_italic: ("\n[i]\nhellow\n[/i]\n", "\n<i>\nhellow\n</i>\n");
-        newline_underline: ("\n[u]\nhellow\n[/u]\n", "\n<u>\nhellow\n</u>\n");
-        newline_strikethrough: ("\n[s]\nhellow\n[/s]\n", "\n<s>\nhellow\n</s>\n");
-        newline_sup: ("\n[sup]\nhellow\n[/sup]\n", "\n<sup>\nhellow\n</sup>\n");
-        newline_sub: ("\n[sub]\nhellow\n[/sub]\n", "\n<sub>\nhellow\n</sub>\n");
+        newline_bold: ("\n[b]\nhellow\n[/b]\n", "<br><b><br>hellow<br></b><br>");
+        newline_italic: ("\n[i]\nhellow\n[/i]\n", "<br><i><br>hellow<br></i><br>");
+        newline_underline: ("\n[u]\nhellow\n[/u]\n", "<br><u><br>hellow<br></u><br>");
+        newline_strikethrough: ("\n[s]\nhellow\n[/s]\n", "<br><s><br>hellow<br></s><br>");
+        newline_sup: ("\n[sup]\nhellow\n[/sup]\n", "<br><sup><br>hellow<br></sup><br>");
+        newline_sub: ("\n[sub]\nhellow\n[/sub]\n", "<br><sub><br>hellow<br></sub><br>");
         consume_attribute: ("[b=haha ok]but maybe? [/b]{no}", "<b>but maybe? </b>{no}");
 
         ////Nicole's bbcode edge cases
@@ -888,7 +898,7 @@ mod tests {
         anchor_simple: ("[anchor=Look_Here]The Title[/anchor]", r##"<a name="Look_Here" href="#Look_Here">The Title</a>"##);
         anchor_inside: ("[anchor=name][h1]A title[/h1][/anchor]", r##"<a name="name" href="#name"><h1>A title</h1></a>"##);
         icode_simple: ("[icode=Nothing Yet]Some[b]code[url][/i][/icode]", r#"<span class="icode">Some[b]code[url][/i]</span>"#);
-        code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "\n<pre class=\"code\" data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
+        code_simple: ("\n[code=SB3]\nSome[b]code[url][/i]\n[/code]\n", "<br><pre class=\"code\" data-code=\"SB3\">Some[b]code[url][/i]\n</pre>");
     }
 
     bbtest_consumer! {
